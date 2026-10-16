@@ -149,6 +149,7 @@ const FIELDS = [
   ['Shop (bill par)', null],
   ['shop_name', 'Shop name'], ['shop_tagline', 'Tagline'], ['shop_address', 'Address'], ['shop_phone', 'Phone'], ['bill_footer', 'Bill footer (Urdu)'], ['bill_footer_en', 'Bill footer (English)'],
   ['slip_lang_default', 'Slip ki default zaban', 'select', [['ur', 'اردو'], ['en', 'English']]],
+  ['edit_window_min', 'Order badalne ka waqt (minute). Uske baad sirf Admin PIN se', 'number'],
   ['Charges', null],
   ['delivery_charge_enabled', 'Delivery charges ka option (order lete waqt puchna)', 'check'],
   ['delivery_charge_default', 'Delivery charges default (Rs)', 'number'],

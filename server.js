@@ -50,6 +50,7 @@ function addCol(table, col, def) {
 addCol('variants', 'cost', 'integer default 0');
 addCol('order_items', 'cost', 'integer default 0');
 addCol('orders', 'uid', 'text');
+addCol('orders', 'replaces', 'integer');
 addCol('orders', 'cost', 'integer default 0');
 addCol('orders', 'profit', 'integer default 0');
 addCol('orders', 'queued', 'integer default 0');
@@ -74,6 +75,7 @@ const DEFAULTS = {
   shop_phone: '0321-7809035',
   bill_footer: 'شکریہ! دوبارہ تشریف لائیں',
   bill_footer_en: 'Thank you! Please visit again',
+  edit_window_min: '2',            // order dene ke itne minute tak cashier badal sakta hai (uske baad Admin PIN)
   slip_lang_default: 'ur',        // ur = اردو slip, en = English slip (checkout par badal sakte hain)
   admin_pin: '1234',
   delivery_charge_enabled: '1',   // 1 = delivery order par charges ka option puchha jaye
@@ -263,63 +265,106 @@ app.get('/api/version', async (req, res) => res.json(await versionInfo()));
 app.get('/api/riders', (req, res) =>
   res.json(db.prepare("select distinct rider from orders where type='delivery' and rider!='' order by id desc limit 20").all().map(r => r.rider)));
 
+
+// Order ke lines/totals server par dobara hisab hote hain (client par bharosa nahi).
+// keepItems: edit ke waqt purani lines (price/cost wahi rehti hain jo order dete waqt thi)
+function calcOrder(b, S, keepItems) {
+  const type = ['dinein', 'takeaway', 'delivery'].includes(b.type) ? b.type : 'takeaway';
+  if (!Array.isArray(b.items) || !b.items.length) return { err: 'Cart khali hai' };
+  if (type === 'delivery' && !String(b.address || '').trim()) return { err: 'Delivery ke liye address likhein' };
+  const getV = db.prepare(`select v.id,v.label,v.price,v.cost,i.name,i.details from variants v join items i on i.id=v.item_id where v.id=? and v.active=1 and i.active=1`);
+  const lines = [];
+  for (const it of b.items) {
+    const qty = Math.min(99, Math.max(1, int(it.qty, 1)));
+    const note = String(it.note || '').slice(0, 200);
+    if (it.keep && keepItems) {
+      const k = keepItems.find(x => x.id === int(it.keep));
+      if (!k) return { err: 'Purani line nahi mili' };
+      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note });
+      continue;
+    }
+    const v = getV.get(it.variant_id);
+    if (!v) return { err: 'Item menu mein nahi mila' };
+    if (v.price <= 0) return { err: `${v.name} ${v.label} ki price set nahi hai (Admin se price daalein)` };
+    lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note });
+  }
+  const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
+  const cost = lines.reduce((s, l) => s + l.cost * l.qty, 0);
+  const discount = Math.min(int(b.discount), subtotal);
+  const profit = subtotal - discount - cost;
+  let delivery = 0, service = 0;
+  if (type === 'delivery' && S.delivery_charge_enabled === '1') delivery = int(b.delivery_charge);
+  if (type === 'dinein' && S.service_charge_enabled === '1' && b.service) {
+    const val = Number(S.service_charge_value) || 0;
+    service = S.service_charge_type === 'percent' ? Math.round((subtotal - discount) * val / 100) : Math.round(val);
+  }
+  return { type, lines, subtotal, cost, discount, profit, delivery, service, total: subtotal - discount + delivery + service };
+}
+const editLeft = o => Math.max(0, Math.round((Number(S_editMin()) * 60) - (Date.now() - new Date(o.created_at.replace(' ', 'T')).getTime()) / 1000));
+function S_editMin() { const m = parseFloat(getSettings().edit_window_min); return isNaN(m) ? 2 : Math.max(0, m); }
+
+function insertOrder(b, calc, S, replaces) {
+  const { type, lines, subtotal, cost, discount, profit, delivery, service, total } = calc;
+  const now = new Date(), bd = businessDate(), sync = syncOn();
+  const no = db.prepare('select coalesce(max(order_no),0)+1 n from orders where business_date=?').get(bd).n;
+  const oid = db.prepare(`insert into orders(uid,order_no,business_date,type,table_no,customer_name,phone,address,rider,
+    subtotal,discount,delivery_charge,service_charge,total,cost,profit,payment,note,printed,print_at,created_at,queued,replaces)
+    values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)`).run(
+    uuid(), no, bd, type, String(b.table_no || '').slice(0, 20), String(b.customer_name || '').slice(0, 80),
+    String(b.phone || '').slice(0, 30), String(b.address || '').slice(0, 300), String(b.rider || '').slice(0, 60),
+    subtotal, discount, delivery, service, total, cost, profit,
+    ['Cash', 'Online', 'Card'].includes(b.payment) ? b.payment : 'Cash',
+    String(b.note || '').slice(0, 300), fmtDT(now), fmtDT(now), sync ? 1 : 0, replaces || null).lastInsertRowid;
+  const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note) values(?,?,?,?,?,?,?,?)');
+  lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note));
+  const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
+  db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
+  if (sync) enqueueOrder(loadOrder(oid), false);
+  return oid;
+}
 app.post('/api/orders', (req, res) => {
   try {
     const b = req.body || {};
     const S = getSettings();
-    const type = ['dinein', 'takeaway', 'delivery'].includes(b.type) ? b.type : 'takeaway';
-    if (!Array.isArray(b.items) || !b.items.length) return res.status(400).json({ error: 'Cart khali hai' });
-    if (type === 'delivery' && !String(b.address || '').trim()) return res.status(400).json({ error: 'Delivery ke liye address likhein' });
-
-    const getV = db.prepare(`select v.id,v.label,v.price,v.cost,i.name,i.details from variants v join items i on i.id=v.item_id where v.id=? and v.active=1 and i.active=1`);
-    const lines = [];
-    for (const it of b.items) {
-      const v = getV.get(it.variant_id);
-      if (!v) return res.status(400).json({ error: 'Item menu mein nahi mila' });
-      if (v.price <= 0) return res.status(400).json({ error: `${v.name} ${v.label} ki price set nahi hai (Admin se price daalein)` });
-      const qty = Math.min(99, Math.max(1, int(it.qty, 1)));
-      lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note: String(it.note || '').slice(0, 200) });
-    }
-    const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
-    const cost = lines.reduce((s, l) => s + l.cost * l.qty, 0);
-    const discount = Math.min(int(b.discount), subtotal);
-    const profit = subtotal - discount - cost;
-    let delivery = 0, service = 0;
-    if (type === 'delivery' && S.delivery_charge_enabled === '1') delivery = int(b.delivery_charge);
-    if (type === 'dinein' && S.service_charge_enabled === '1' && b.service) {
-      const val = Number(S.service_charge_value) || 0;
-      service = S.service_charge_type === 'percent' ? Math.round((subtotal - discount) * val / 100) : Math.round(val);
-    }
-    const total = subtotal - discount + delivery + service;
-    const now = new Date();
-    const bd = businessDate();
+    const calc = calcOrder(b, S, null);
+    if (calc.err) return res.status(400).json({ error: calc.err });
+    const { type, lines, subtotal, cost, discount, profit, delivery, service, total } = calc;
     const sync = syncOn();
-
-    const id = db.transaction(() => {
-      const no = db.prepare('select coalesce(max(order_no),0)+1 n from orders where business_date=?').get(bd).n;
-      const oid = db.prepare(`insert into orders(uid,order_no,business_date,type,table_no,customer_name,phone,address,rider,
-        subtotal,discount,delivery_charge,service_charge,total,cost,profit,payment,note,printed,print_at,created_at,queued)
-        values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?)`).run(
-        uuid(), no, bd, type, String(b.table_no || '').slice(0, 20), String(b.customer_name || '').slice(0, 80),
-        String(b.phone || '').slice(0, 30), String(b.address || '').slice(0, 300), String(b.rider || '').slice(0, 60),
-        subtotal, discount, delivery, service, total, cost, profit,
-        ['Cash', 'Online', 'Card'].includes(b.payment) ? b.payment : 'Cash',
-        String(b.note || '').slice(0, 300), fmtDT(now), fmtDT(now), sync ? 1 : 0).lastInsertRowid;
-      const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note) values(?,?,?,?,?,?,?,?)');
-      lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note));
-      const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
-      db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
-      if (sync) enqueueOrder(loadOrder(oid), false);
-      return oid;
-    })();
+    const id = db.transaction(() => insertOrder(b, calc, S, null))();
     if (sync) syncSoon();
     res.json(publicOrder(loadOrder(id)));
   } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
+
+// Order badalna: waqt (edit_window_min) ke andar cashier, uske baad sirf Admin PIN ke saath
+app.put('/api/orders/:id', (req, res) => {
+  try {
+    const b = req.body || {}, S = getSettings();
+    const o = loadOrder(req.params.id);
+    if (!o) return res.status(404).json({ error: 'Order nahi mila' });
+    if (o.status !== 'done') return res.status(400).json({ error: 'Cancelled order badla nahi ja sakta' });
+    const pinOk = req.get('x-admin-pin') === S.admin_pin;
+    if (!pinOk && editLeft(o) <= 0) return res.status(403).json({ error: 'Change ka waqt khatam. Admin PIN chahiye.', code: 'LOCKED' });
+    const calc = calcOrder(b, S, o.items);
+    if (calc.err) return res.status(400).json({ error: calc.err });
+    const late = editLeft(o) <= 0;
+    const nid = db.transaction(() => {
+      db.prepare("update orders set status='cancelled' where id=?").run(o.id);
+      if (o.queued) enqueueOrder(o, true);            // purani entry ki ulti (reversal) Sheet mein
+      const id = insertOrder(b, calc, S, o.order_no);  // naya order, naya number
+      const n = loadOrder(id);
+      logEvent('edit', `Order #${o.order_no} (${o.business_date}) cancel, naya order #${n.order_no}${late ? ' (Admin PIN)' : ''}: Rs ${o.total} -> Rs ${n.total}`);
+      return id;
+    })();
+    syncSoon();
+    res.json(publicOrder(loadOrder(nid)));
+  } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
+});
+
 app.get('/api/orders/recent', (req, res) =>
   res.json(db.prepare(`select id,order_no,type,table_no,customer_name,total,status,printed,created_at from orders
-    where business_date=? order by id desc limit 50`).all(businessDate())));
+    where business_date=? order by id desc limit 50`).all(businessDate()).map(o => ({ ...o, edit_left: editLeft(o) }))));
 
 // Printer-station PC yahan se naye (na-print hue) orders poochta hai
 app.get('/api/print/pending', (req, res) => {

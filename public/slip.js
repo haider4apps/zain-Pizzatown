@@ -4,12 +4,13 @@ const LANG = {
   ur: { type: { dinein: 'ڈائن اِن', takeaway: 'ٹیک اوے', delivery: 'ڈیلیوری' }, orderNo: 'آرڈر نمبر', kind: 'قسم', time: 'وقت', name: 'نام', phone: 'فون',
     addr: 'پتہ', sub: 'ذیلی رقم', disc: 'رعایت', del: 'ڈیلیوری چارجز', svc: 'سروس چارجز', total: 'کل رقم', pay: 'ادائیگی',
     kitchen: 'کچن سلپ', note: 'نوٹ: ', onote: 'آرڈر نوٹ: ', dslip: 'ڈیلیوری سلپ', rider: 'رائیڈر', paid: 'ادا شدہ', nocollect: 'رقم وصول نہیں کرنی',
-    collect: 'وصولی کریں', delIncl: 'ڈیلیوری چارجز شامل: ', cls: '' },
+    collect: 'وصولی کریں', cxl: 'آرڈر نمبر', cxl2: 'کینسل - نیا نمبر', delIncl: 'ڈیلیوری چارجز شامل: ', cls: '' },
   en: { type: { dinein: 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery' }, orderNo: 'Order No', kind: 'Type', time: 'Time', name: 'Name', phone: 'Phone',
     addr: 'Address', sub: 'Subtotal', disc: 'Discount', del: 'Delivery charges', svc: 'Service charges', total: 'TOTAL', pay: 'Payment',
     kitchen: 'KITCHEN SLIP', note: 'Note: ', onote: 'Order note: ', dslip: 'DELIVERY SLIP', rider: 'Rider', paid: 'PAID', nocollect: 'Do not collect cash',
-    collect: 'COLLECT', delIncl: 'Delivery charges included: ', cls: ' en' },
+    collect: 'COLLECT', cxl: 'Order #', cxl2: 'CANCELLED - new no.', delIncl: 'Delivery charges included: ', cls: ' en' },
 };
+const chg = (o, L) => o.replaces ? `<div class="c" style="border:3px solid #000;font-weight:800;font-size:calc(16 * var(--f));padding:3px;margin:4px 0">${L.cls ? L.cxl + o.replaces + ' ' + L.cxl2 + ' #' + o.order_no : L.cxl + ' ' + o.replaces + ' ' + L.cxl2 + ' ' + o.order_no}</div>` : '';
 const rs = n => 'Rs ' + Number(n || 0).toLocaleString('en-PK');
 const row = (label, val, cls = '') => `<div class="row ${cls}"><span>${label}</span><span class="v">${val}</span></div>`;
 function when(s) { // "YYYY-MM-DD HH:MM:SS" -> "16-10-2026 09:48 PM"
@@ -27,6 +28,7 @@ function bill(o, S, L) {
     <div class="c small">${esc(S.shop_address)}</div>
     <div class="c small" style="direction:ltr">${esc(S.shop_phone)}</div>
     <hr>
+    ${chg(o, L)}
     ${row(L.orderNo, '#' + o.order_no, 'grand')}
     ${row(L.kind, L.type[o.type] + (o.table_no ? ' - ' + esc(o.table_no) : ''))}
     ${row(L.time, when(o.created_at))}
@@ -51,7 +53,7 @@ function kitchen(o, L) {
   const items = o.items.map(i => `<div class="k"><span class="q">${i.qty} ×</span> ${lineName(i)}
     ${i.details ? `<small>${esc(i.details)}</small>` : ''}${i.note ? `<div class="note">${L.note}${esc(i.note)}</div>` : ''}</div>`).join('');
   return `<div class="slip${L.cls}">
-    <div class="c title">${L.kitchen}</div>
+    ${chg(o, L)}<div class="c title">${L.kitchen}</div>
     <div class="c big">#${o.order_no}</div>
     <div class="c" style="font-size:calc(20 * var(--f));font-weight:800">${L.type[o.type]}${o.table_no ? ' - ' + esc(o.table_no) : ''}</div>
     <div class="c small">${when(o.created_at)}</div>
@@ -64,7 +66,7 @@ function delivery(o, L) {
   const items = o.items.map(i => `<div style="direction:ltr;font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:calc(13 * var(--f))">${i.qty} × ${lineName(i)}</div>`).join('');
   const paid = o.payment !== 'Cash';
   return `<div class="slip${L.cls}">
-    <div class="c title">${L.dslip}</div>
+    ${chg(o, L)}<div class="c title">${L.dslip}</div>
     <div class="c big">#${o.order_no}</div>
     <div class="c small">${when(o.created_at)}</div>
     <hr>

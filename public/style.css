@@ -95,3 +95,5 @@ input:focus,select:focus,textarea:focus{border-color:var(--gold)}
 .vline.unsure{outline:2px solid var(--gold)}
 .vline select{margin-top:4px}
 a.btn{color:inherit}
+
+.editbar{display:flex;justify-content:space-between;align-items:center;gap:8px;background:color-mix(in srgb,var(--gold) 20%,var(--panel2));border:1px solid var(--gold);border-radius:10px;padding:8px 10px;margin-bottom:8px}

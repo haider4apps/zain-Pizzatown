@@ -6,6 +6,7 @@ const TYPES = { dinein: 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery' };
 
 async function api(url, opt) {
   const o = opt && { method: opt.method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opt.body || {}) };
+  if (o && opt.headers) Object.assign(o.headers, opt.headers);
   const r = await fetch(url, o);
   const j = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(j.error || ('Error ' + r.status));
@@ -19,6 +20,7 @@ function toast(msg, ms = 2500) {
 
 let menu = [], settings = {}, cart = [], cur = null, query = '';
 let co = null; // checkout state
+let editing = null; // { id, order_no, pin } jab purana order badla ja raha ho
 
 // ---------------- menu ----------------
 const GRPCOL = ['#f08a4b', '#5fb3e8', '#b88cf0', '#7bd88f', '#f06292', '#e8b94c'];
@@ -79,7 +81,11 @@ function addToCart(item, v) {
 const cartTotal = () => cart.reduce((s, l) => s + l.price * l.qty, 0);
 function renderCart() {
   const body = $('#cartBody'); body.innerHTML = '';
-  if (!cart.length) body.innerHTML = '<div class="empty">Cart khali hai.<br>Item ke size/price button par tap karein.</div>';
+  if (editing) {
+    const eb = el('div', 'editbar', `<b>Order #${editing.order_no} badla ja raha hai</b><small>(naya number milega)</small><button class="btn" id="editStop">Chhor do</button>`);
+    eb.querySelector('#editStop').onclick = stopEdit; body.appendChild(eb);
+  }
+  if (!cart.length) body.appendChild(el('div', 'empty', 'Cart khali hai.<br>Item ke size/price button par tap karein.'));
   cart.forEach((l, idx) => {
     const d = el('div', 'line');
     d.innerHTML = `<div class="l1"><span>${esc(l.name)}${l.label ? ' <small style="color:var(--mute)">(' + esc(l.label) + ')</small>' : ''}</span><span>${money(l.price * l.qty)}</span></div>
@@ -99,6 +105,7 @@ function renderCart() {
   $('#barCount').textContent = n ? `View Cart · ${n} items` : 'Cart khali';
   $('#barTotal').textContent = money(cartTotal());
   $('#checkoutBtn').disabled = !cart.length;
+  $('#checkoutBtn').textContent = editing ? 'Save change' : 'Checkout';
 }
 
 // ---------------- checkout ----------------
@@ -125,7 +132,7 @@ function renderCheckout() {
   const sh = $('#coSheet');
   const dEn = settings.delivery_charge_enabled === '1', sEn = settings.service_charge_enabled === '1';
   const svcLabel = settings.service_charge_type === 'percent' ? `${settings.service_charge_value}%` : `Rs ${settings.service_charge_value}`;
-  sh.innerHTML = `<h3>Checkout</h3>
+  sh.innerHTML = `<h3>${editing ? 'Order #' + editing.order_no + ' badlein' : 'Checkout'}</h3>
   <div class="seg" id="typeSeg">${Object.entries(TYPES).map(([k, v]) => `<button data-t="${k}" class="${co.type === k ? 'on' : ''}">${v}</button>`).join('')}</div>
   ${co.type === 'dinein' ? `<div class="f"><label>Table / Token no. (optional)</label><input id="f_table" value="${esc(co.table_no)}"></div>` : ''}
   ${co.type === 'delivery' ? `
@@ -144,7 +151,7 @@ function renderCheckout() {
   <div class="f"><label>Order note (optional)</label><input id="f_note" value="${esc(co.note)}"></div>
   <div class="f"><label>Slip ki zaban</label><div class="seg two-seg" id="langSeg"><button data-l="ur" class="${co.slip_lang === 'ur' ? 'on' : ''}">اردو</button><button data-l="en" class="${co.slip_lang === 'en' ? 'on' : ''}">English</button></div></div>
   <div class="sum" id="sum"></div>
-  <div class="two"><button class="btn" id="coCancel">Back</button><button class="btn gold" id="coOk">Save &amp; Print</button></div>`;
+  <div class="two"><button class="btn" id="coCancel">Back</button><button class="btn gold" id="coOk">${editing ? 'Save change &amp; Print' : 'Save &amp; Print'}</button></div>`;
   sh.querySelectorAll('#typeSeg button').forEach(b => b.onclick = () => { readForm(); co.type = b.dataset.t; renderCheckout(); });
   sh.querySelectorAll('#langSeg button').forEach(b => b.onclick = () => { readForm(); co.slip_lang = b.dataset.l; renderCheckout(); });
   sh.querySelectorAll('input,textarea,select').forEach(i => i.oninput = () => { readForm(); updSum(); });
@@ -174,15 +181,16 @@ async function placeOrder() {
   if (co.type === 'delivery' && !co.address.trim()) { toast('Delivery ke liye address likhein'); return; }
   placing = true; $('#coOk').disabled = true;
   try {
-    const o = await api('/api/orders', { body: {
+    const o = await api(editing ? '/api/orders/' + editing.id : '/api/orders', { method: editing ? 'PUT' : 'POST', headers: editing && editing.pin ? { 'x-admin-pin': editing.pin } : undefined, body: {
       type: co.type, table_no: co.table_no, customer_name: co.customer_name, phone: co.phone, address: co.address,
       rider: co.rider, discount: +co.discount || 0, delivery_charge: +co.delivery_charge || 0, service: co.service,
       payment: co.payment, note: co.note, slip_lang: co.slip_lang,
-      items: cart.map(l => ({ variant_id: l.variant_id, qty: l.qty, note: l.note })) } });
-    cart = []; co = null;
+      items: cart.map(l => l.keep ? { keep: l.keep, qty: l.qty, note: l.note } : { variant_id: l.variant_id, qty: l.qty, note: l.note }) } });
+    const wasEdit = editing ? editing.order_no : 0;
+    cart = []; co = null; editing = null;
     $('#coModal').classList.remove('on'); $('#cart').classList.remove('open');
     renderCart();
-    toast(`Order #${o.order_no} save ho gaya · ${money(o.total)}` + (isStation() ? '' : ' · Print PC par hoga'), 3500);
+    toast(wasEdit ? `#${wasEdit} cancel, naya order #${o.order_no} · ${money(o.total)}` : `Order #${o.order_no} save ho gaya · ${money(o.total)}` + (isStation() ? '' : ' · Print PC par hoga'), 3500);
     if (isStation()) pollPrint();
     loadRiders();
   } catch (e) { toast(e.message, 4000); }
@@ -193,18 +201,48 @@ async function placeOrder() {
 async function openOrders() {
   const sh = $('#ordSheet'); sh.innerHTML = '<h3>Aaj ke orders</h3><div class="empty">Loading...</div>';
   $('#ordModal').classList.add('on');
-  const list = await api('/api/orders/recent');
+  const list = await api('/api/orders/recent'); const t0 = Date.now();
   sh.innerHTML = '<h3>Aaj ke orders</h3>' + (list.length ? '' : '<div class="empty">Abhi koi order nahi</div>');
   list.forEach(o => {
     const d = el('div', 'ord');
     d.innerHTML = `<div class="i"><b>#${o.order_no}</b> <span class="tag">${TYPES[o.type]}</span>${o.status === 'cancelled' ? '<span class="tag" style="color:var(--red)">cancelled</span>' : ''}${o.printed ? '' : '<span class="tag">print pending</span>'}<br>
       <small>${o.created_at.slice(11, 16)} · ${esc(o.customer_name || o.table_no || '')}</small></div><b>${money(o.total)}</b>
-      <button class="btn" data-a="pv">View</button><button class="btn" data-a="rp-ur">Reprint اردو</button><button class="btn" data-a="rp-en">Reprint EN</button>`;
+      <button class="btn" data-a="ed"></button><button class="btn" data-a="pv">View</button><button class="btn" data-a="rp-ur">Reprint اردو</button><button class="btn" data-a="rp-en">Reprint EN</button>`;
+    const eb = d.querySelector('[data-a=ed]');
+    if (o.status !== 'done') eb.remove();
+    else {
+      const upd = () => { const left = Math.max(0, o.edit_left - Math.floor((Date.now() - t0) / 1000)); eb.textContent = left > 0 ? `Edit (${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')})` : 'Edit (PIN)'; eb.classList.toggle('gold', left > 0); return left; };
+      upd(); const iv = setInterval(() => { if (!document.body.contains(eb)) return clearInterval(iv); upd(); }, 1000);
+      eb.onclick = () => startEdit(o, upd());
+    }
     d.querySelector('[data-a=pv]').onclick = () => window.open('/slip.html?preview=1&id=' + o.id, '_blank');
     ['ur', 'en'].forEach(l => (d.querySelector(`[data-a=rp-${l}]`).onclick = async () => { await api(`/api/orders/${o.id}/reprint`, { body: { lang: l } }); toast('Reprint queue mein gaya'); if (isStation()) pollPrint(); }));
     sh.appendChild(d);
   });
   const c = el('button', 'btn', 'Close'); c.onclick = () => $('#ordModal').classList.remove('on'); sh.appendChild(c);
+}
+
+// ---------------- order edit ----------------
+function stopEdit() { editing = null; cart = []; co = null; renderCart(); }
+async function startEdit(o, left) {
+  let pin = '';
+  try {
+    if (left <= 0) {
+      pin = prompt('Change ka waqt khatam ho gaya. Admin PIN daalein:');
+      if (!pin) return;
+      const r = await fetch('/api/admin/login', { headers: { 'x-admin-pin': pin } });
+      if (!r.ok) { toast('PIN ghalat hai', 3000); return; }
+    }
+    if (cart.length && !editing && !confirm('Maujooda cart khali hokar is order ka edit khulega. Theek hai?')) return;
+    const f = await api('/api/orders/' + o.id);
+    cart = f.items.map(i => ({ keep: i.id, name: i.item_name, label: i.variant_label, price: i.price, qty: i.qty, note: i.note || '' }));
+    co = { type: f.type, table_no: f.table_no || '', customer_name: f.customer_name || '', phone: f.phone || '', address: f.address || '', rider: f.rider || '',
+      discount: f.discount || 0, payment: f.payment || 'Cash', delivery_charge: f.delivery_charge || 0, service: !!f.service_charge, note: f.note || '',
+      slip_lang: f.slip_lang || (settings.slip_lang_default === 'en' ? 'en' : 'ur') };
+    editing = { id: o.id, order_no: o.order_no, pin };
+    $('#ordModal').classList.remove('on'); $('#cart').classList.add('open');
+    renderCart(); toast('Item badlein, phir "Save change" dabayein', 3500);
+  } catch (e) { toast(e.message, 4000); }
 }
 
 // ---------------- printer station ----------------
@@ -293,7 +331,7 @@ function toggleMic() {
 // ---------------- wiring ----------------
 $('#search').oninput = e => { query = e.target.value.trim().toLowerCase(); renderTabs(); renderMenu(); };
 $('#checkoutBtn').onclick = openCheckout;
-$('#clearCart').onclick = () => { if (cart.length && confirm('Cart khali kar dein?')) { cart = []; renderCart(); } };
+$('#clearCart').onclick = () => { if (cart.length && confirm('Cart khali kar dein?')) { cart = []; editing = null; co = null; renderCart(); } };
 $('#btnOrders').onclick = openOrders;
 $('#btnVoice').onclick = openVoice;
 $('#btnStation').onclick = () => { localStorage.setItem('station', isStation() ? '0' : '1'); updStation(); if (isStation()) toast('Is device se ab slips print hongi'); };
