@@ -53,6 +53,7 @@ addCol('orders', 'uid', 'text');
 addCol('orders', 'cost', 'integer default 0');
 addCol('orders', 'profit', 'integer default 0');
 addCol('orders', 'queued', 'integer default 0');
+addCol('orders', 'slip_lang', "text default ''");
 db.exec(`
 create table if not exists expenses(
   id integer primary key, uid text, date text, category text, note text, amount integer,
@@ -72,6 +73,8 @@ const DEFAULTS = {
   shop_address: 'Mukdi Adda, 75 Wala Road, Yazman',
   shop_phone: '0321-7809035',
   bill_footer: 'شکریہ! دوبارہ تشریف لائیں',
+  bill_footer_en: 'Thank you! Please visit again',
+  slip_lang_default: 'ur',        // ur = اردو slip, en = English slip (checkout par badal sakte hain)
   admin_pin: '1234',
   delivery_charge_enabled: '1',   // 1 = delivery order par charges ka option puchha jaye
   delivery_charge_default: '0',
@@ -304,6 +307,8 @@ app.post('/api/orders', (req, res) => {
         String(b.note || '').slice(0, 300), fmtDT(now), fmtDT(now), sync ? 1 : 0).lastInsertRowid;
       const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note) values(?,?,?,?,?,?,?,?)');
       lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note));
+      const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
+      db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
       if (sync) enqueueOrder(loadOrder(oid), false);
       return oid;
     })();
@@ -329,6 +334,8 @@ app.post('/api/orders/:id/printed', (req, res) => {
   db.prepare('update orders set printed=1 where id=?').run(req.params.id); res.json({ ok: true });
 });
 app.post('/api/orders/:id/reprint', (req, res) => {
+  const lang = (req.body || {}).lang;
+  if (['ur', 'en'].includes(lang)) db.prepare('update orders set slip_lang=? where id=?').run(lang, req.params.id);
   db.prepare('update orders set printed=0, print_at=? where id=?').run(fmtDT(new Date()), req.params.id); res.json({ ok: true });
 });
 

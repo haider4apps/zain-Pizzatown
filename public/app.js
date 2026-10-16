@@ -98,7 +98,7 @@ function renderCart() {
 function openCheckout() {
   if (!cart.length) return;
   co = co || { type: 'dinein', table_no: '', customer_name: '', phone: '', address: '', rider: '', discount: 0,
-    payment: 'Cash', delivery_charge: settings.delivery_charge_default || 0, service: true, note: '' };
+    payment: 'Cash', delivery_charge: settings.delivery_charge_default || 0, service: true, note: '', slip_lang: settings.slip_lang_default === 'en' ? 'en' : 'ur' };
   co.delivery_charge = co.delivery_charge ?? 0;
   renderCheckout();
   $('#coModal').classList.add('on');
@@ -119,7 +119,7 @@ function renderCheckout() {
   const dEn = settings.delivery_charge_enabled === '1', sEn = settings.service_charge_enabled === '1';
   const svcLabel = settings.service_charge_type === 'percent' ? `${settings.service_charge_value}%` : `Rs ${settings.service_charge_value}`;
   sh.innerHTML = `<h3>Checkout</h3>
-  <div class="seg">${Object.entries(TYPES).map(([k, v]) => `<button data-t="${k}" class="${co.type === k ? 'on' : ''}">${v}</button>`).join('')}</div>
+  <div class="seg" id="typeSeg">${Object.entries(TYPES).map(([k, v]) => `<button data-t="${k}" class="${co.type === k ? 'on' : ''}">${v}</button>`).join('')}</div>
   ${co.type === 'dinein' ? `<div class="f"><label>Table / Token no. (optional)</label><input id="f_table" value="${esc(co.table_no)}"></div>` : ''}
   ${co.type === 'delivery' ? `
     <div class="two"><div class="f"><label>Customer name</label><input id="f_name" value="${esc(co.customer_name)}"></div>
@@ -135,9 +135,11 @@ function renderCheckout() {
   ${co.type === 'dinein' && sEn ? `<label class="chk"><input type="checkbox" id="f_svc" ${co.service ? 'checked' : ''}> Service charges lagayein (${svcLabel})</label>` : ''}
   <div class="f"><label>Payment</label><select id="f_pay">${['Cash', 'Online', 'Card'].map(p => `<option ${co.payment === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
   <div class="f"><label>Order note (optional)</label><input id="f_note" value="${esc(co.note)}"></div>
+  <div class="f"><label>Slip ki zaban</label><div class="seg two-seg" id="langSeg"><button data-l="ur" class="${co.slip_lang === 'ur' ? 'on' : ''}">اردو</button><button data-l="en" class="${co.slip_lang === 'en' ? 'on' : ''}">English</button></div></div>
   <div class="sum" id="sum"></div>
   <div class="two"><button class="btn" id="coCancel">Back</button><button class="btn gold" id="coOk">Save &amp; Print</button></div>`;
-  sh.querySelectorAll('.seg button').forEach(b => b.onclick = () => { readForm(); co.type = b.dataset.t; renderCheckout(); });
+  sh.querySelectorAll('#typeSeg button').forEach(b => b.onclick = () => { readForm(); co.type = b.dataset.t; renderCheckout(); });
+  sh.querySelectorAll('#langSeg button').forEach(b => b.onclick = () => { readForm(); co.slip_lang = b.dataset.l; renderCheckout(); });
   sh.querySelectorAll('input,textarea,select').forEach(i => i.oninput = () => { readForm(); updSum(); });
   $('#coCancel').onclick = () => $('#coModal').classList.remove('on');
   $('#coOk').onclick = placeOrder;
@@ -168,7 +170,7 @@ async function placeOrder() {
     const o = await api('/api/orders', { body: {
       type: co.type, table_no: co.table_no, customer_name: co.customer_name, phone: co.phone, address: co.address,
       rider: co.rider, discount: +co.discount || 0, delivery_charge: +co.delivery_charge || 0, service: co.service,
-      payment: co.payment, note: co.note,
+      payment: co.payment, note: co.note, slip_lang: co.slip_lang,
       items: cart.map(l => ({ variant_id: l.variant_id, qty: l.qty, note: l.note })) } });
     cart = []; co = null;
     $('#coModal').classList.remove('on'); $('#cart').classList.remove('open');
@@ -190,9 +192,9 @@ async function openOrders() {
     const d = el('div', 'ord');
     d.innerHTML = `<div class="i"><b>#${o.order_no}</b> <span class="tag">${TYPES[o.type]}</span>${o.status === 'cancelled' ? '<span class="tag" style="color:var(--red)">cancelled</span>' : ''}${o.printed ? '' : '<span class="tag">print pending</span>'}<br>
       <small>${o.created_at.slice(11, 16)} · ${esc(o.customer_name || o.table_no || '')}</small></div><b>${money(o.total)}</b>
-      <button class="btn" data-a="pv">View</button><button class="btn" data-a="rp">Reprint</button>`;
+      <button class="btn" data-a="pv">View</button><button class="btn" data-a="rp-ur">Reprint اردو</button><button class="btn" data-a="rp-en">Reprint EN</button>`;
     d.querySelector('[data-a=pv]').onclick = () => window.open('/slip.html?preview=1&id=' + o.id, '_blank');
-    d.querySelector('[data-a=rp]').onclick = async () => { await api(`/api/orders/${o.id}/reprint`, {}); toast('Reprint queue mein gaya'); if (isStation()) pollPrint(); };
+    ['ur', 'en'].forEach(l => (d.querySelector(`[data-a=rp-${l}]`).onclick = async () => { await api(`/api/orders/${o.id}/reprint`, { body: { lang: l } }); toast('Reprint queue mein gaya'); if (isStation()) pollPrint(); }));
     sh.appendChild(d);
   });
   const c = el('button', 'btn', 'Close'); c.onclick = () => $('#ordModal').classList.remove('on'); sh.appendChild(c);
@@ -228,11 +230,65 @@ async function loadRiders() {
   try { const r = await api('/api/riders'); $('#riders').innerHTML = r.map(x => `<option value="${esc(x)}">`).join(''); } catch (e) {}
 }
 
+// ---------------- voice order ----------------
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let vo = { lang: 'en-IN', text: '', res: null, rec: null, listening: false };
+function addQty(item, v, qty) {
+  const l = cart.find(x => x.variant_id === v.id);
+  if (l) l.qty += qty; else cart.push({ variant_id: v.id, name: item.name, label: v.label, price: v.price, qty, note: '' });
+}
+function openVoice() {
+  vo.res = null; vo.text = '';
+  let m = $('#voiceModal');
+  if (!m) { m = el('div', 'modal'); m.id = 'voiceModal'; m.innerHTML = '<div class="sheet" id="voiceSheet"></div>'; document.body.appendChild(m); m.addEventListener('click', e => { if (e.target === m) closeVoice(); }); }
+  m.classList.add('on'); renderVoice();
+}
+function closeVoice() { try { vo.rec && vo.rec.stop(); } catch (e) {} vo.listening = false; $('#voiceModal').classList.remove('on'); }
+function renderVoice() {
+  const sh = $('#voiceSheet');
+  const canMic = SR && window.isSecureContext;
+  const lines = vo.res ? vo.res.lines : [];
+  sh.innerHTML = `<h3>Voice order</h3>
+  ${canMic ? `<div class="seg two-seg" id="vLang"><button data-l="en-IN" class="${vo.lang === 'en-IN' ? 'on' : ''}">Roman / English</button><button data-l="ur-PK" class="${vo.lang === 'ur-PK' ? 'on' : ''}">اردو</button></div>
+  <button class="btn ${vo.listening ? 'red' : 'gold'}" id="vMic" style="padding:16px;font-size:18px">${vo.listening ? '■ Ruk jao (sun raha hoon...)' : '🎤 Bolna shuru karein'}</button>`
+    : `<div style="color:var(--mute);font-size:13px">${SR ? 'Is device par mic band hai (http address). Keyboard ke mic 🎤 se bol kar niche likhwayein.' : 'Is browser mein voice nahi. Keyboard ke mic 🎤 se bol kar niche likhwayein.'}</div>`}
+  <div class="f"><label>Jo bola / likha (theek bhi kar sakte hain)</label><textarea id="vText" rows="2" placeholder="e.g. do large fajita pizza, ek zinger, teen cold drink 500ml">${esc(vo.text)}</textarea></div>
+  <button class="btn" id="vParse">Samjho</button>
+  <div id="vRes">${vo.res ? (lines.length ? lines.map((l, i) => `<div class="vline ${l.uncertain ? 'unsure' : ''}">
+      <div class="qty"><button data-i="${i}" data-a="-">−</button><span>${l.qty}</span><button data-i="${i}" data-a="+">+</button></div>
+      <div style="flex:1"><b>${esc(l.item.name)}</b><br><select data-i="${i}" data-a="v">${l.item.variants.filter(v => v.price > 0).map(v => `<option value="${v.id}" ${v.id === l.variant.id ? 'selected' : ''}>${esc(v.label || 'Regular')} · Rs ${v.price}</option>`).join('')}</select></div>
+      <button class="btn red" data-i="${i}" data-a="x">✕</button></div>`).join('') : '<div class="empty" style="margin:6px">Koi item nahi samjha</div>') +
+      vo.res.unmatched.map(u => `<div style="color:var(--red);font-size:13px">Samajh nahi aaya (ya price set nahi): ${esc(u)}</div>`).join('') : ''}</div>
+  <div class="two"><button class="btn" id="vClose">Band</button><button class="btn gold" id="vAdd" ${lines.length ? '' : 'disabled'}>Cart mein daalo</button></div>`;
+  const mic = $('#vMic'); if (mic) mic.onclick = toggleMic;
+  sh.querySelectorAll('#vLang button').forEach(b => b.onclick = () => { vo.lang = b.dataset.l; renderVoice(); });
+  $('#vText').oninput = e => (vo.text = e.target.value);
+  $('#vParse').onclick = () => { vo.text = $('#vText').value; doParse(); };
+  $('#vClose').onclick = closeVoice;
+  $('#vAdd').onclick = () => { vo.res.lines.forEach(l => addQty(l.item, l.variant, l.qty)); renderCart(); closeVoice(); toast('Cart mein daal diya, check karke Checkout karein'); };
+  sh.querySelectorAll('#vRes [data-a]').forEach(b => {
+    const l = vo.res.lines[+b.dataset.i], a = b.dataset.a;
+    if (a === 'v') b.onchange = () => { l.variant = l.item.variants.find(v => v.id === +b.value); l.uncertain = false; renderVoice(); };
+    else b.onclick = () => { if (a === '+') l.qty++; if (a === '-') l.qty = Math.max(1, l.qty - 1); if (a === 'x') vo.res.lines.splice(+b.dataset.i, 1); renderVoice(); };
+  });
+}
+function doParse() { vo.res = VoiceParse.parse(vo.text, menu); renderVoice(); }
+function toggleMic() {
+  if (vo.listening) { try { vo.rec.stop(); } catch (e) {} return; }
+  const r = new SR(); vo.rec = r; r.lang = vo.lang; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
+  r.onstart = () => { vo.listening = true; renderVoice(); };
+  r.onresult = e => { vo.text = [...e.results].map(x => x[0].transcript).join(' '); const t = $('#vText'); if (t) t.value = vo.text; };
+  r.onerror = e => { vo.listening = false; toast(e.error === 'not-allowed' ? 'Mic ki ijazat nahi. Chrome ke address bar mein mic Allow karein' : e.error === 'network' ? 'Voice ke liye internet chahiye' : e.error === 'no-speech' ? 'Awaaz nahi aayi, dobara bolein' : 'Voice error: ' + e.error, 4000); renderVoice(); };
+  r.onend = () => { vo.listening = false; if (vo.text.trim()) doParse(); else renderVoice(); };
+  try { r.start(); } catch (e) { toast('Mic start nahi hua'); }
+}
+
 // ---------------- wiring ----------------
 $('#search').oninput = e => { query = e.target.value.trim().toLowerCase(); renderTabs(); renderMenu(); };
 $('#checkoutBtn').onclick = openCheckout;
 $('#clearCart').onclick = () => { if (cart.length && confirm('Cart khali kar dein?')) { cart = []; renderCart(); } };
 $('#btnOrders').onclick = openOrders;
+$('#btnVoice').onclick = openVoice;
 $('#btnStation').onclick = () => { localStorage.setItem('station', isStation() ? '0' : '1'); updStation(); if (isStation()) toast('Is device se ab slips print hongi'); };
 $('#cartbar').onclick = () => $('#cart').classList.add('open');
 $('#closeCart').onclick = () => $('#cart').classList.remove('open');

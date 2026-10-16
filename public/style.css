@@ -80,3 +80,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--gold)}
  #cartbar{display:flex;position:fixed;left:10px;right:10px;bottom:10px;z-index:30;background:var(--gold);color:#1a1405;border:0;border-radius:14px;padding:14px 16px;font-weight:800;font-size:17px;justify-content:space-between;box-shadow:0 4px 18px rgba(0,0,0,.5)}
  #toast{bottom:90px}
 }
+
+.two-seg{grid-template-columns:1fr 1fr}
+.vline{display:flex;gap:8px;align-items:center;background:var(--panel2);border-radius:10px;padding:8px;margin-top:6px}
+.vline.unsure{outline:2px solid var(--gold)}
+.vline select{margin-top:4px}

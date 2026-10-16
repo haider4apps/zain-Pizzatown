@@ -106,7 +106,7 @@ async function viewSales() {
   <div class="box"><b>Orders</b>${tbl(['#', 'Date', 'Time', 'Type', 'Who', 'Total', ''], r.orders.map(o => [
     o.order_no, o.business_date, o.created_at.slice(11, 16), TYPES[o.type], esc(o.customer_name || o.table_no || o.rider || ''),
     o.status === 'cancelled' ? '<s style="color:var(--red)">' + money(o.total) + '</s>' : money(o.total),
-    `<button class="btn" data-act="pv" data-id="${o.id}">View</button> <button class="btn" data-act="rp" data-id="${o.id}">Reprint</button> ` +
+    `<button class="btn" data-act="pv" data-id="${o.id}">View</button> <button class="btn" data-act="rp" data-lang="ur" data-id="${o.id}">Reprint اردو</button> <button class="btn" data-act="rp" data-lang="en" data-id="${o.id}">Reprint EN</button> ` +
     (o.status === 'done' ? `<button class="btn red" data-act="cx" data-id="${o.id}">Cancel</button>` : '')]))}</div>`;
   $('#go').onclick = () => { from = $('#dFrom').value; to = $('#dTo').value || from; viewSales(); };
   view.onclick = e => guard(async () => {
@@ -115,7 +115,7 @@ async function viewSales() {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const id = b.dataset.id;
     if (b.dataset.act === 'pv') window.open('/slip.html?preview=1&id=' + id, '_blank');
-    if (b.dataset.act === 'rp') { await fetch(`/api/orders/${id}/reprint`, { method: 'POST' }); toast('Reprint queue mein gaya (Printer ON wale PC par niklegi)', 3000); }
+    if (b.dataset.act === 'rp') { await fetch(`/api/orders/${id}/reprint`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ lang: b.dataset.lang }) }); toast('Reprint queue mein gaya (Printer ON wale PC par niklegi)', 3000); }
     if (b.dataset.act === 'cx' && confirm('Ye order cancel karein? Sale se nikal jaye ga.')) { await A(`/orders/${id}/cancel`, 'POST'); viewSales(); }
   });
 }
@@ -147,7 +147,8 @@ async function viewExpenses() {
 // ---------- settings ----------
 const FIELDS = [
   ['Shop (bill par)', null],
-  ['shop_name', 'Shop name'], ['shop_tagline', 'Tagline'], ['shop_address', 'Address'], ['shop_phone', 'Phone'], ['bill_footer', 'Bill footer (Urdu)'],
+  ['shop_name', 'Shop name'], ['shop_tagline', 'Tagline'], ['shop_address', 'Address'], ['shop_phone', 'Phone'], ['bill_footer', 'Bill footer (Urdu)'], ['bill_footer_en', 'Bill footer (English)'],
+  ['slip_lang_default', 'Slip ki default zaban', 'select', [['ur', 'اردو'], ['en', 'English']]],
   ['Charges', null],
   ['delivery_charge_enabled', 'Delivery charges ka option (order lete waqt puchna)', 'check'],
   ['delivery_charge_default', 'Delivery charges default (Rs)', 'number'],
