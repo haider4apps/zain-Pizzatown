@@ -297,8 +297,8 @@ function renderVoice() {
   ${canMic ? `<div class="seg two-seg" id="vLang"><button data-l="en-IN" class="${vo.lang === 'en-IN' ? 'on' : ''}">Roman / English</button><button data-l="ur-PK" class="${vo.lang === 'ur-PK' ? 'on' : ''}">اردو</button></div>
   <button class="btn ${vo.listening ? 'red' : 'gold'}" id="vMic" style="padding:16px;font-size:18px">${vo.listening ? '■ Ruk jao (sun raha hoon...)' : '🎤 Bolna shuru karein'}</button>`
     : `<div style="color:var(--mute);font-size:13px">${SR ? 'Is device par mic band hai (http address). Keyboard ke mic 🎤 se bol kar niche likhwayein.' : 'Is browser mein voice nahi. Keyboard ke mic 🎤 se bol kar niche likhwayein.'}</div>`}
-  <div class="f"><label>Jo bola / likha (theek bhi kar sakte hain)</label><textarea id="vText" rows="2" placeholder="e.g. do large fajita pizza, ek zinger, teen cold drink 500ml">${esc(vo.text)}</textarea></div>
-  <button class="btn" id="vParse">Samjho</button>
+  <div class="f"><label>Abhi jo bola / likha (har baar bolne par list mein judta jata hai)</label><textarea id="vText" rows="2" placeholder="e.g. do large fajita pizza, ek zinger, teen cold drink 500ml">${esc(vo.text)}</textarea></div>
+  <button class="btn" id="vParse">Samjho aur list mein jodo</button>
   <div id="vRes">${vo.res ? (lines.length ? lines.map((l, i) => `<div class="vline ${l.uncertain ? 'unsure' : ''}">
       <div class="qty"><button data-i="${i}" data-a="-">−</button><span>${l.qty}</span><button data-i="${i}" data-a="+">+</button></div>
       <div style="flex:1"><b>${esc(l.item.name)}</b><br><select data-i="${i}" data-a="v">${l.item.variants.filter(v => v.price > 0).map(v => `<option value="${v.id}" ${v.id === l.variant.id ? 'selected' : ''}>${esc(v.label || 'Regular')} · Rs ${v.price}</option>`).join('')}</select></div>
@@ -310,14 +310,25 @@ function renderVoice() {
   $('#vText').oninput = e => (vo.text = e.target.value);
   $('#vParse').onclick = () => { vo.text = $('#vText').value; doParse(); };
   $('#vClose').onclick = closeVoice;
-  $('#vAdd').onclick = () => { vo.res.lines.forEach(l => addQty(l.item, l.variant, l.qty)); renderCart(); closeVoice(); toast('Cart mein daal diya, check karke Checkout karein'); };
+  $('#vAdd').onclick = () => { vo.res.lines.forEach(l => addQty(l.item, l.variant, l.qty)); renderCart(); vo.res = null; vo.text = ''; renderVoice(); toast('Cart mein daal diya. Aur bolna ho to bolte rahein, warna Band dabayein', 3500); };
   sh.querySelectorAll('#vRes [data-a]').forEach(b => {
     const l = vo.res.lines[+b.dataset.i], a = b.dataset.a;
     if (a === 'v') b.onchange = () => { l.variant = l.item.variants.find(v => v.id === +b.value); l.uncertain = false; renderVoice(); };
     else b.onclick = () => { if (a === '+') l.qty++; if (a === '-') l.qty = Math.max(1, l.qty - 1); if (a === 'x') vo.res.lines.splice(+b.dataset.i, 1); renderVoice(); };
   });
 }
-function doParse() { vo.res = VoiceParse.parse(vo.text, menu); renderVoice(); }
+function doParse() {
+  // Har nayi baat purani list mein judti hai (purane items nahi urte)
+  const r = VoiceParse.parse(vo.text, menu);
+  if (!vo.res) vo.res = { lines: [], unmatched: [] };
+  r.lines.forEach(n => {
+    const ex = vo.res.lines.find(l => l.item.id === n.item.id && l.variant.id === n.variant.id);
+    if (ex) ex.qty += n.qty; else vo.res.lines.push(n);
+  });
+  vo.res.unmatched = vo.res.unmatched.concat(r.unmatched || []);
+  vo.text = '';
+  renderVoice();
+}
 function toggleMic() {
   if (vo.listening) { try { vo.rec.stop(); } catch (e) {} return; }
   const r = new SR(); vo.rec = r; r.lang = vo.lang; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
