@@ -1,6 +1,6 @@
 {
   "name": "pizzatown-pos",
-  "version": "1.3.2",
+  "version": "1.3.3",
   "description": "Pizza Town offline POS",
   "main": "server.js",
   "scripts": { "start": "node server.js" },

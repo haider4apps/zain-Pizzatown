@@ -21,6 +21,7 @@ let menu = [], settings = {}, cart = [], cur = null, query = '';
 let co = null; // checkout state
 
 // ---------------- menu ----------------
+const GRPCOL = ['#f08a4b', '#5fb3e8', '#b88cf0', '#7bd88f', '#f06292', '#e8b94c'];
 const PALETTE = ['#f5c542', '#ef5350', '#ff9800', '#26a69a', '#8bc34a', '#ba68c8', '#42a5f5', '#26c6da', '#f06292', '#a1887f'];
 const catColor = id => { const i = menu.findIndex(c => c.id === id); return PALETTE[(i < 0 ? 0 : i) % PALETTE.length]; };
 async function load() {
@@ -32,7 +33,6 @@ function renderTabs() {
   const box = $('#tabs'); box.innerHTML = '';
   menu.forEach(c => {
     const b = el('button', c.id === cur && !query ? 'on' : '', esc(c.name));
-    b.style.setProperty('--c', catColor(c.id));
     b.onclick = () => { cur = c.id; query = ''; $('#search').value = ''; renderTabs(); renderMenu(); $('#menu').scrollTop = 0; };
     box.appendChild(b);
   });
@@ -49,12 +49,15 @@ function renderMenu() {
     const c = menu.find(c => c.id === cur); list = c ? c.items : [];
   }
   if (!list.length) box.innerHTML = '<div class="empty" style="grid-column:1/-1">Koi item nahi mila</div>';
-  let last = null;
+  let last = null, gbox = null, gi = -1;
   list.forEach(i => {
-    if (i.grp && i.grp !== last) { const g = el('h3', 'grp', esc(i.grp)); g.style.setProperty('--c', catColor(i.category_id)); box.appendChild(g); }
+    if (i.grp && i.grp !== last) {
+      gi++; gbox = el('div', 'gbox'); gbox.style.setProperty('--c', GRPCOL[gi % GRPCOL.length]);
+      gbox.appendChild(el('h3', 'grp', esc(i.grp))); box.appendChild(gbox);
+    }
+    if (!i.grp) gbox = null;
     last = i.grp;
     const card = el('div', 'card');
-    card.style.setProperty('--c', catColor(i.category_id));
     card.innerHTML = `<div class="nm">${esc(i.name)}</div>` + (i.details ? `<div class="det">${esc(i.details)}</div>` : '');
     const chips = el('div', 'chips');
     i.variants.forEach(v => {
@@ -63,7 +66,7 @@ function renderMenu() {
       b.onclick = () => { if (v.price > 0) { addToCart(i, v); b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); } else toast('Is ki price set nahi. Admin se price daalein.'); };
       chips.appendChild(b);
     });
-    card.appendChild(chips); box.appendChild(card);
+    card.appendChild(chips); (gbox || box).appendChild(card);
   });
 }
 
