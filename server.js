@@ -633,8 +633,8 @@ admin.post('/sync/now', async (req, res) => res.json(await syncOnce()));
 admin.get('/update/check', async (req, res) => {
   try {
     if (!hasGit()) return res.status(400).json({ error: 'Is folder ka GitHub se link nahi hai. setup.bat chalayen.' });
-    await run('git', ['fetch', 'origin', '--quiet']);
     const branch = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+    await run('git', ['fetch', 'origin', `+refs/heads/${branch}:refs/remotes/origin/${branch}`, '--quiet']);   // refspec khud dete hain, config par bharosa nahi
     const behind = parseInt(await run('git', ['rev-list', '--count', `HEAD..origin/${branch}`])) || 0;
     const changes = behind ? (await run('git', ['log', `HEAD..origin/${branch}`, '--pretty=%s', '-n', '10'])).split('\n') : [];
     res.json({ ...(await versionInfo()), behind, changes });
@@ -648,7 +648,8 @@ admin.post('/update', async (req, res) => {
     await run('git', ['checkout', '--', 'package-lock.json']).catch(() => {});   // npm install ise badal deta hai
     const before = await run('git', ['rev-parse', 'HEAD']);
     await dailyBackup();
-    const out = await run('git', ['pull', '--ff-only']);
+    const br = await run('git', ['rev-parse', '--abbrev-ref', 'HEAD']);
+    const out = await run('git', ['pull', '--ff-only', 'origin', br]);
     const after = await run('git', ['rev-parse', 'HEAD']);
     if (before === after) return res.json({ ok: true, updated: false, message: 'Pehle se naya version hai.' });
     const changed = (await run('git', ['diff', '--name-only', before, after])).split('\n');
