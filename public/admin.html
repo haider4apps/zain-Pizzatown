@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Pizza Town Admin</title>
+<link rel="stylesheet" href="/style.css">
+<style>
+  body{overflow:auto}
+  .wrap{max-width:980px;margin:0 auto;padding:14px;display:flex;flex-direction:column;gap:14px}
+  .bar{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .bar .logo{margin-right:auto}
+  .tabs{display:flex;gap:8px;flex-wrap:wrap}
+  .tabs button{padding:10px 18px;border-radius:10px;border:1px solid var(--line);background:var(--panel2);font-weight:700}
+  .tabs button.on{background:var(--gold);color:#1a1405}
+  .box{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+  .item{background:var(--panel2);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px}
+  .item.off{opacity:.55}
+  .r{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .r>*{flex:1 1 120px}.r>.s{flex:0 0 auto}.r>.n{flex:0 0 110px}
+  .vrow{display:flex;gap:8px;align-items:center}
+  .vrow input[type=number]{flex:0 0 110px}.vrow input[type=text]{flex:1}
+  .vrow label,.r label.s{display:flex;align-items:center;gap:6px;font-size:13px;color:var(--mute);white-space:nowrap}
+  .vrow input[type=checkbox],.r input[type=checkbox]{width:20px;height:20px}
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th,td{padding:6px 8px;border-bottom:1px solid var(--line);text-align:left}
+  th{color:var(--mute);font-weight:600}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+  .stat{background:var(--panel2);border-radius:12px;padding:12px}.stat small{color:var(--mute)}.stat b{display:block;font-size:22px;color:var(--gold)}
+  select#catSel{max-width:360px}
+  #login{max-width:340px;margin:80px auto}
+</style>
+</head>
+<body>
+<div id="login" class="box"><h3 style="margin:0;color:var(--gold)">Admin PIN</h3>
+  <input id="pin" type="password" inputmode="numeric" placeholder="PIN" autofocus>
+  <button class="btn gold" id="pinOk">Open</button><a href="/" style="color:var(--mute)">← POS par wapas</a></div>
+<div class="wrap" id="main" style="display:none">
+  <div class="bar"><div class="logo">PIZZA TOWN · ADMIN</div><a class="btn" href="/" style="text-decoration:none">← POS</a></div>
+  <div class="tabs" id="tabs"><button data-t="menu" class="on">Menu &amp; Prices</button><button data-t="sales">Sales &amp; Profit</button><button data-t="exp">Kharcha</button><button data-t="set">Settings</button></div>
+  <div id="view"></div>
+</div>
+<div id="toast"></div>
+<script src="/admin.js"></script>
+</body>
+</html>

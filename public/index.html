@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>Pizza Town POS</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<div id="app">
+  <header class="top">
+    <div class="logo">PIZZA TOWN</div>
+    <input class="search" id="search" placeholder="Search item..." autocomplete="off">
+    <div class="sp"></div>
+    <button class="btn" id="btnOrders">Orders</button>
+    <button class="btn hide-m" id="btnStation" title="Is device se slips print hongi">Printer: OFF</button>
+    <a class="btn hide-m" href="/admin.html" style="text-decoration:none">Admin</a>
+  </header>
+  <nav id="tabs"></nav>
+  <section id="menu"></section>
+  <aside id="cart">
+    <h2><span>Current Order <small id="cartCount" style="color:var(--mute)"></small></span>
+      <span><button class="btn" id="clearCart">Clear</button> <button class="btn" id="closeCart">Close</button></span></h2>
+    <div id="cartBody"></div>
+    <div id="cartFoot">
+      <div class="tot"><span>Total</span><span id="cartTotal">Rs 0</span></div>
+      <button class="btn gold" id="checkoutBtn" style="padding:14px;font-size:18px">Checkout</button>
+    </div>
+  </aside>
+</div>
+<button id="cartbar"><span id="barCount">Cart</span><span id="barTotal">Rs 0</span></button>
+
+<div class="modal" id="coModal"><div class="sheet" id="coSheet"></div></div>
+<div class="modal" id="ordModal"><div class="sheet" id="ordSheet"></div></div>
+<div id="toast"></div>
+<datalist id="riders"></datalist>
+<iframe id="printFrame" style="position:fixed;left:-9999px;width:1px;height:1px;border:0"></iframe>
+<script src="/app.js"></script>
+</body>
+</html>

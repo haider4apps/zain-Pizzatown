@@ -1,0 +1,242 @@
+const $ = s => document.querySelector(s);
+const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const money = n => 'Rs ' + Number(n || 0).toLocaleString('en-PK');
+const TYPES = { dinein: 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery' };
+
+async function api(url, opt) {
+  const o = opt && { method: opt.method || 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(opt.body || {}) };
+  const r = await fetch(url, o);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error || ('Error ' + r.status));
+  return j;
+}
+let toastT;
+function toast(msg, ms = 2500) {
+  const t = $('#toast'); t.textContent = msg; t.style.display = 'block';
+  clearTimeout(toastT); toastT = setTimeout(() => (t.style.display = 'none'), ms);
+}
+
+let menu = [], settings = {}, cart = [], cur = null, query = '';
+let co = null; // checkout state
+
+// ---------------- menu ----------------
+async function load() {
+  [menu, settings] = await Promise.all([api('/api/menu'), api('/api/settings')]);
+  if (!menu.find(c => c.id === cur)) cur = menu.length ? menu[0].id : null;
+  renderTabs(); renderMenu(); renderCart();
+}
+function renderTabs() {
+  const box = $('#tabs'); box.innerHTML = '';
+  menu.forEach(c => {
+    const b = el('button', c.id === cur && !query ? 'on' : '', esc(c.name));
+    b.onclick = () => { cur = c.id; query = ''; $('#search').value = ''; renderTabs(); renderMenu(); $('#menu').scrollTop = 0; };
+    box.appendChild(b);
+  });
+}
+function renderMenu() {
+  const box = $('#menu'); box.innerHTML = '';
+  let list = [];
+  if (query) {
+    menu.forEach(c => c.items.forEach(i => {
+      if ((i.name + ' ' + (i.details || '') + ' ' + (i.grp || '')).toLowerCase().includes(query))
+        list.push({ ...i, grp: c.name + (i.grp ? ' · ' + i.grp : '') });
+    }));
+  } else {
+    const c = menu.find(c => c.id === cur); list = c ? c.items : [];
+  }
+  if (!list.length) box.innerHTML = '<div class="empty" style="grid-column:1/-1">Koi item nahi mila</div>';
+  let last = null;
+  list.forEach(i => {
+    if (i.grp && i.grp !== last) box.appendChild(el('h3', 'grp', esc(i.grp)));
+    last = i.grp;
+    const card = el('div', 'card');
+    card.innerHTML = `<div class="nm">${esc(i.name)}</div>` + (i.details ? `<div class="det">${esc(i.details)}</div>` : '');
+    const chips = el('div', 'chips');
+    i.variants.forEach(v => {
+      const b = el('button', 'chip' + (v.price > 0 ? '' : ' na'),
+        (v.label ? `<small>${esc(v.label)}</small>` : '') + (v.price > 0 ? `<b>${v.price}</b>` : 'price?'));
+      b.onclick = () => v.price > 0 ? addToCart(i, v) : toast('Is ki price set nahi. Admin se price daalein.');
+      chips.appendChild(b);
+    });
+    card.appendChild(chips); box.appendChild(card);
+  });
+}
+
+// ---------------- cart ----------------
+function addToCart(item, v) {
+  const l = cart.find(x => x.variant_id === v.id);
+  if (l) l.qty++; else cart.push({ variant_id: v.id, name: item.name, label: v.label, price: v.price, qty: 1, note: '' });
+  renderCart();
+}
+const cartTotal = () => cart.reduce((s, l) => s + l.price * l.qty, 0);
+function renderCart() {
+  const body = $('#cartBody'); body.innerHTML = '';
+  if (!cart.length) body.innerHTML = '<div class="empty">Cart khali hai.<br>Item ke size/price button par tap karein.</div>';
+  cart.forEach((l, idx) => {
+    const d = el('div', 'line');
+    d.innerHTML = `<div class="l1"><span>${esc(l.name)}${l.label ? ' <small style="color:var(--mute)">(' + esc(l.label) + ')</small>' : ''}</span><span>${money(l.price * l.qty)}</span></div>
+      <div class="l2"><div class="qty"><button data-a="-">−</button><span>${l.qty}</span><button data-a="+">+</button></div>
+      <input class="note" placeholder="Note (kam mirch, bina pyaaz...)" value="${esc(l.note)}"></div>`;
+    d.querySelectorAll('button').forEach(b => b.onclick = () => {
+      l.qty += b.dataset.a === '+' ? 1 : -1;
+      if (l.qty <= 0) cart.splice(idx, 1);
+      renderCart();
+    });
+    d.querySelector('.note').oninput = e => (l.note = e.target.value);
+    body.appendChild(d);
+  });
+  const n = cart.reduce((s, l) => s + l.qty, 0);
+  $('#cartCount').textContent = n ? `(${n} items)` : '';
+  $('#cartTotal').textContent = money(cartTotal());
+  $('#barCount').textContent = n ? `View Cart · ${n} items` : 'Cart khali';
+  $('#barTotal').textContent = money(cartTotal());
+  $('#checkoutBtn').disabled = !cart.length;
+}
+
+// ---------------- checkout ----------------
+function openCheckout() {
+  if (!cart.length) return;
+  co = co || { type: 'dinein', table_no: '', customer_name: '', phone: '', address: '', rider: '', discount: 0,
+    payment: 'Cash', delivery_charge: settings.delivery_charge_default || 0, service: true, note: '' };
+  co.delivery_charge = co.delivery_charge ?? 0;
+  renderCheckout();
+  $('#coModal').classList.add('on');
+}
+function calc() {
+  const sub = cartTotal();
+  const disc = Math.min(Math.max(+co.discount || 0, 0), sub);
+  let del = 0, svc = 0;
+  if (co.type === 'delivery' && settings.delivery_charge_enabled === '1') del = Math.max(+co.delivery_charge || 0, 0);
+  if (co.type === 'dinein' && settings.service_charge_enabled === '1' && co.service) {
+    const v = +settings.service_charge_value || 0;
+    svc = settings.service_charge_type === 'percent' ? Math.round((sub - disc) * v / 100) : Math.round(v);
+  }
+  return { sub, disc, del, svc, total: sub - disc + del + svc };
+}
+function renderCheckout() {
+  const sh = $('#coSheet');
+  const dEn = settings.delivery_charge_enabled === '1', sEn = settings.service_charge_enabled === '1';
+  const svcLabel = settings.service_charge_type === 'percent' ? `${settings.service_charge_value}%` : `Rs ${settings.service_charge_value}`;
+  sh.innerHTML = `<h3>Checkout</h3>
+  <div class="seg">${Object.entries(TYPES).map(([k, v]) => `<button data-t="${k}" class="${co.type === k ? 'on' : ''}">${v}</button>`).join('')}</div>
+  ${co.type === 'dinein' ? `<div class="f"><label>Table / Token no. (optional)</label><input id="f_table" value="${esc(co.table_no)}"></div>` : ''}
+  ${co.type === 'delivery' ? `
+    <div class="two"><div class="f"><label>Customer name</label><input id="f_name" value="${esc(co.customer_name)}"></div>
+    <div class="f"><label>Phone</label><input id="f_phone" type="tel" value="${esc(co.phone)}"></div></div>
+    <div class="f"><label>Address *</label><textarea id="f_addr" rows="2">${esc(co.address)}</textarea></div>
+    <div class="f"><label>Rider (delivery boy)</label><input id="f_rider" list="riders" value="${esc(co.rider)}"></div>` : ''}
+  ${co.type === 'takeaway' ? `<div class="two"><div class="f"><label>Customer name (optional)</label><input id="f_name" value="${esc(co.customer_name)}"></div>
+    <div class="f"><label>Phone (optional)</label><input id="f_phone" type="tel" value="${esc(co.phone)}"></div></div>` : ''}
+  <div class="two">
+    <div class="f"><label>Discount (Rs)</label><input id="f_disc" type="number" min="0" inputmode="numeric" value="${co.discount || ''}"></div>
+    ${co.type === 'delivery' && dEn ? `<div class="f"><label>Delivery charges (Rs)</label><input id="f_del" type="number" min="0" inputmode="numeric" value="${co.delivery_charge || ''}" placeholder="0 = free"></div>` : '<div></div>'}
+  </div>
+  ${co.type === 'dinein' && sEn ? `<label class="chk"><input type="checkbox" id="f_svc" ${co.service ? 'checked' : ''}> Service charges lagayein (${svcLabel})</label>` : ''}
+  <div class="f"><label>Payment</label><select id="f_pay">${['Cash', 'Online', 'Card'].map(p => `<option ${co.payment === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+  <div class="f"><label>Order note (optional)</label><input id="f_note" value="${esc(co.note)}"></div>
+  <div class="sum" id="sum"></div>
+  <div class="two"><button class="btn" id="coCancel">Back</button><button class="btn gold" id="coOk">Save &amp; Print</button></div>`;
+  sh.querySelectorAll('.seg button').forEach(b => b.onclick = () => { readForm(); co.type = b.dataset.t; renderCheckout(); });
+  sh.querySelectorAll('input,textarea,select').forEach(i => i.oninput = () => { readForm(); updSum(); });
+  $('#coCancel').onclick = () => $('#coModal').classList.remove('on');
+  $('#coOk').onclick = placeOrder;
+  updSum();
+}
+function readForm() {
+  const g = id => { const e = $('#' + id); return e ? e.value : undefined; };
+  const set = (k, id) => { const v = g(id); if (v !== undefined) co[k] = v; };
+  set('table_no', 'f_table'); set('customer_name', 'f_name'); set('phone', 'f_phone'); set('address', 'f_addr');
+  set('rider', 'f_rider'); set('discount', 'f_disc'); set('delivery_charge', 'f_del'); set('payment', 'f_pay'); set('note', 'f_note');
+  const s = $('#f_svc'); if (s) co.service = s.checked;
+}
+function updSum() {
+  const c = calc();
+  $('#sum').innerHTML = `<div><span>Subtotal</span><span>${money(c.sub)}</span></div>` +
+    (c.disc ? `<div><span>Discount</span><span>- ${money(c.disc)}</span></div>` : '') +
+    (c.del ? `<div><span>Delivery</span><span>${money(c.del)}</span></div>` : '') +
+    (c.svc ? `<div><span>Service charges</span><span>${money(c.svc)}</span></div>` : '') +
+    `<div class="big"><span>Total</span><span>${money(c.total)}</span></div>`;
+}
+let placing = false;
+async function placeOrder() {
+  if (placing) return;
+  readForm();
+  if (co.type === 'delivery' && !co.address.trim()) { toast('Delivery ke liye address likhein'); return; }
+  placing = true; $('#coOk').disabled = true;
+  try {
+    const o = await api('/api/orders', { body: {
+      type: co.type, table_no: co.table_no, customer_name: co.customer_name, phone: co.phone, address: co.address,
+      rider: co.rider, discount: +co.discount || 0, delivery_charge: +co.delivery_charge || 0, service: co.service,
+      payment: co.payment, note: co.note,
+      items: cart.map(l => ({ variant_id: l.variant_id, qty: l.qty, note: l.note })) } });
+    cart = []; co = null;
+    $('#coModal').classList.remove('on'); $('#cart').classList.remove('open');
+    renderCart();
+    toast(`Order #${o.order_no} save ho gaya · ${money(o.total)}` + (isStation() ? '' : ' · Print PC par hoga'), 3500);
+    if (isStation()) pollPrint();
+    loadRiders();
+  } catch (e) { toast(e.message, 4000); }
+  placing = false; const ok = $('#coOk'); if (ok) ok.disabled = false;
+}
+
+// ---------------- recent orders ----------------
+async function openOrders() {
+  const sh = $('#ordSheet'); sh.innerHTML = '<h3>Aaj ke orders</h3><div class="empty">Loading...</div>';
+  $('#ordModal').classList.add('on');
+  const list = await api('/api/orders/recent');
+  sh.innerHTML = '<h3>Aaj ke orders</h3>' + (list.length ? '' : '<div class="empty">Abhi koi order nahi</div>');
+  list.forEach(o => {
+    const d = el('div', 'ord');
+    d.innerHTML = `<div class="i"><b>#${o.order_no}</b> <span class="tag">${TYPES[o.type]}</span>${o.status === 'cancelled' ? '<span class="tag" style="color:var(--red)">cancelled</span>' : ''}${o.printed ? '' : '<span class="tag">print pending</span>'}<br>
+      <small>${o.created_at.slice(11, 16)} · ${esc(o.customer_name || o.table_no || '')}</small></div><b>${money(o.total)}</b>
+      <button class="btn" data-a="pv">View</button><button class="btn" data-a="rp">Reprint</button>`;
+    d.querySelector('[data-a=pv]').onclick = () => window.open('/slip.html?preview=1&id=' + o.id, '_blank');
+    d.querySelector('[data-a=rp]').onclick = async () => { await api(`/api/orders/${o.id}/reprint`, {}); toast('Reprint queue mein gaya'); if (isStation()) pollPrint(); };
+    sh.appendChild(d);
+  });
+  const c = el('button', 'btn', 'Close'); c.onclick = () => $('#ordModal').classList.remove('on'); sh.appendChild(c);
+}
+
+// ---------------- printer station ----------------
+// Jis device (PC) se print karna ho wahan "Printer" button ON karein. Mobile se aaye orders bhi yahan print honge.
+const isStation = () => localStorage.getItem('station') === '1';
+let printing = false;
+function updStation() { const b = $('#btnStation'); b.textContent = 'Printer: ' + (isStation() ? 'ON' : 'OFF'); b.classList.toggle('stn', isStation()); }
+function printOne(id) {
+  return new Promise(resolve => {
+    const f = $('#printFrame'); let done = false;
+    const fin = () => { if (done) return; done = true; window.removeEventListener('message', on); resolve(); };
+    const on = e => { if (e.data && e.data.slipDone == id) fin(); };
+    window.addEventListener('message', on);
+    setTimeout(fin, 12000);
+    f.src = '/slip.html?id=' + id + '&t=' + Date.now();
+  });
+}
+async function pollPrint() {
+  if (!isStation() || printing) return;
+  printing = true;
+  try {
+    const ids = await api('/api/print/pending');
+    for (const id of ids) { await printOne(id); await api(`/api/orders/${id}/printed`, {}); }
+  } catch (e) { /* server band ho to agli dafa try hoga */ }
+  printing = false;
+}
+setInterval(pollPrint, 3000);
+
+async function loadRiders() {
+  try { const r = await api('/api/riders'); $('#riders').innerHTML = r.map(x => `<option value="${esc(x)}">`).join(''); } catch (e) {}
+}
+
+// ---------------- wiring ----------------
+$('#search').oninput = e => { query = e.target.value.trim().toLowerCase(); renderTabs(); renderMenu(); };
+$('#checkoutBtn').onclick = openCheckout;
+$('#clearCart').onclick = () => { if (cart.length && confirm('Cart khali kar dein?')) { cart = []; renderCart(); } };
+$('#btnOrders').onclick = openOrders;
+$('#btnStation').onclick = () => { localStorage.setItem('station', isStation() ? '0' : '1'); updStation(); if (isStation()) toast('Is device se ab slips print hongi'); };
+$('#cartbar').onclick = () => $('#cart').classList.add('open');
+$('#closeCart').onclick = () => $('#cart').classList.remove('open');
+[$('#coModal'), $('#ordModal')].forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('on'); }));
+
+updStation(); loadRiders();
+load().catch(e => toast('Server se rabta nahi: ' + e.message, 6000));
