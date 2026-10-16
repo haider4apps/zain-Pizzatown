@@ -53,6 +53,15 @@ function iconId(name) {
 const icon = (id, cls) => `<svg class="i ${cls || ''}" viewBox="0 0 24 24">${ICONS[id] || ICONS.other}</svg>`;
 const wmUrl = id => 'url("data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="rgba(232,185,76,.08)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">${ICONS[id] || ICONS.other}</svg>`) + '")';
 
+const SECCOL = { deals: '#e8b94c', pizza: '#f08a4b', burger: '#ef5350', wrap: '#2fb9a8', fries: '#f5c542', bites: '#d98a5b', pasta: '#8bc34a', drink: '#42a5f5', other: '#e8b94c' };
+function shade(hex, i, n) { // ek hi group/section ke items ka rang thora thora alag (hue ghuma kar)
+  const r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+  const mx = Math.max(r, g, b), mn = Math.min(r, g, b), L = (mx + mn) / 2;
+  const S = mx === mn ? 0 : (L > .5 ? (mx - mn) / (2 - mx - mn) : (mx - mn) / (mx + mn));
+  let H = 0;
+  if (mx !== mn) { H = mx === r ? (g - b) / (mx - mn) + (g < b ? 6 : 0) : mx === g ? (b - r) / (mx - mn) + 2 : (r - g) / (mx - mn) + 4; H *= 60; }
+  return `hsl(${Math.round((H + (i - (n - 1) / 2) * (n > 1 ? Math.min(14, 36 / (n - 1)) : 0) + 360) % 360)},${Math.round(S * 100)}%,${Math.round(L * 100)}%)`;
+}
 function renderTabs() {
   const box = $('#tabs'); box.innerHTML = '';
   menu.forEach(c => {
@@ -82,15 +91,21 @@ function renderMenu() {
     }
   }
   if (!list.length) box.innerHTML += '<div class="empty" style="grid-column:1/-1">Koi item nahi mila</div>';
-  let last = null, gbox = null, gi = -1;
+  let last = null, gbox = null, gi = -1, gcol = null;
+  const sizes = {}, seen = {};
+  list.forEach(i => { const k = i.grp || ''; sizes[k] = (sizes[k] || 0) + 1; });
   list.forEach(i => {
     if (i.grp && i.grp !== last) {
-      gi++; gbox = el('div', 'gbox'); gbox.style.setProperty('--c', GRPCOL[gi % GRPCOL.length]);
+      gi++; gcol = GRPCOL[gi % GRPCOL.length]; gbox = el('div', 'gbox'); gbox.style.setProperty('--c', gcol);
       gbox.appendChild(el('h3', 'grp', esc(i.grp))); box.appendChild(gbox);
     }
-    if (!i.grp) gbox = null;
+    if (!i.grp) { gbox = null; gcol = null; }
     last = i.grp;
+    const key = i.grp || '', cname = (menu.find(c => c.id === i.category_id) || {}).name;
+    const base = i.grp && gcol ? gcol : SECCOL[iconId(cname)] || SECCOL.other;
     const card = el('div', 'card');
+    card.style.setProperty('--c', shade(base, seen[key] = (seen[key] || 0), sizes[key]));
+    seen[key]++;
     card.innerHTML = `<div class="nm">${esc(i.name)}</div>` + (i.details ? `<div class="det">${esc(i.details)}</div>` : '');
     const chips = el('div', 'chips');
     i.variants.forEach(v => {

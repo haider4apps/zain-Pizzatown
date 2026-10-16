@@ -111,3 +111,9 @@ a.btn{color:inherit}
 .card:hover{border-color:var(--c);background:color-mix(in srgb,var(--c) 9%,var(--panel))}
 .card.hit{animation:cardhit .6s ease-out;border-color:var(--c)}
 @keyframes cardhit{0%{background:color-mix(in srgb,var(--c) 60%,var(--panel));box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 55%,transparent)}100%{background:color-mix(in srgb,var(--c) 9%,var(--panel));box-shadow:0 0 0 0 transparent}}
+
+.card{border-color:color-mix(in srgb,var(--c) 45%,var(--line));background:linear-gradient(135deg,color-mix(in srgb,var(--c) 40%,var(--panel)) 0%,var(--panel) 75%)}
+.card:hover{border-color:var(--c);background:linear-gradient(135deg,color-mix(in srgb,var(--c) 52%,var(--panel)) 0%,color-mix(in srgb,var(--c) 8%,var(--panel)) 80%)}
+.chip{background:rgba(10,12,16,.55);border-color:color-mix(in srgb,var(--c) 50%,transparent)}
+.chip:hover{background:color-mix(in srgb,var(--c) 45%,rgba(10,12,16,.6))}
+@keyframes cardhit{0%{background:color-mix(in srgb,var(--c) 70%,var(--panel));box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 55%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
