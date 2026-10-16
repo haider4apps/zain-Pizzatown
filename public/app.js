@@ -31,10 +31,32 @@ async function load() {
   if (!menu.find(c => c.id === cur)) cur = menu.length ? menu[0].id : null;
   renderTabs(); renderMenu(); renderCart();
 }
+// ---------------- section icons (ek rang ki line drawings) ----------------
+const ICONS = {
+  deals: '<path d="M3 12V4h8l10 10-8 8L3 12z"/><circle cx="7.5" cy="8.5" r="1.3"/><path d="M12 13l3-3M11 16l5-5"/>',
+  pizza: '<path d="M2.5 7Q12 1.5 21.5 7L12 22z"/><path d="M4.5 9.2Q12 5.2 19.5 9.2"/><circle cx="9.5" cy="10.5" r="1.3"/><circle cx="14.5" cy="11" r="1.3"/><circle cx="12" cy="15.5" r="1.2"/>',
+  burger: '<path d="M4 11a8 6 0 0 1 16 0H4z"/><path d="M8 7.5h.01M12 6.5h.01M16 7.5h.01"/><path d="M3 14h18"/><path d="M4 17h16v1a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-1z"/>',
+  wrap: '<path d="M5 16L16 5a3 3 0 0 1 4 4L9 20a3 3 0 0 1-4-4z"/><path d="M13 8l3 3M8 13l3 3"/>',
+  fries: '<path d="M6 12h12l-1.5 9h-9L6 12z"/><path d="M8 12V4M11 12V2.5M14 12V4M17 11.5V5.5"/>',
+  bites: '<circle cx="15" cy="9" r="5.5"/><path d="M11 13L5.5 18.5"/><circle cx="4.3" cy="18" r="1.5"/><circle cx="6" cy="20" r="1.5"/><path d="M13 7.5a3 3 0 0 1 2.5-.8"/>',
+  pasta: '<path d="M3 12h18a9 8 0 0 1-18 0z"/><path d="M7 12c0-3 2-3 2-6.5M12 12c0-3 2-3 2-7M16.5 12c0-2.2 1.5-2.2 1.5-4.5"/>',
+  drink: '<path d="M6 8h12l-1.5 13h-9L6 8z"/><path d="M5 8h14"/><path d="M13 8l1.8-5H18"/><path d="M7.3 13h9.4"/>',
+  other: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="4"/>',
+};
+function iconId(name) {
+  const n = String(name || '').toLowerCase();
+  if (/deal/.test(n)) return 'deals'; if (/pizza/.test(n)) return 'pizza'; if (/burger/.test(n)) return 'burger';
+  if (/wrap|roll|shawarma/.test(n)) return 'wrap'; if (/fries|fry/.test(n)) return 'fries'; if (/bite|wing|nugget/.test(n)) return 'bites';
+  if (/pasta|salad/.test(n)) return 'pasta'; if (/drink|water|juice|shake/.test(n)) return 'drink';
+  return 'other';
+}
+const icon = (id, cls) => `<svg class="i ${cls || ''}" viewBox="0 0 24 24">${ICONS[id] || ICONS.other}</svg>`;
+const wmUrl = id => 'url("data:image/svg+xml,' + encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="rgba(232,185,76,.08)" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">${ICONS[id] || ICONS.other}</svg>`) + '")';
+
 function renderTabs() {
   const box = $('#tabs'); box.innerHTML = '';
   menu.forEach(c => {
-    const b = el('button', c.id === cur && !query ? 'on' : '', esc(c.name));
+    const b = el('button', c.id === cur && !query ? 'on' : '', icon(iconId(c.name)) + `<span>${esc(c.name)}</span>`);
     b.onclick = () => { cur = c.id; query = ''; $('#search').value = ''; renderTabs(); renderMenu(); $('#menu').scrollTop = 0; };
     box.appendChild(b);
   });
@@ -50,7 +72,16 @@ function renderMenu() {
   } else {
     const c = menu.find(c => c.id === cur); list = c ? c.items : [];
   }
-  if (!list.length) box.innerHTML = '<div class="empty" style="grid-column:1/-1">Koi item nahi mila</div>';
+  box.style.backgroundImage = '';
+  if (!query) {
+    const c = menu.find(c => c.id === cur);
+    if (c) {
+      const id = iconId(c.name);
+      box.style.backgroundImage = wmUrl(id);
+      box.appendChild(el('div', 'hdr', `${icon(id)}<div><b>${esc(c.name)}</b><small>${list.length} items</small></div>`));
+    }
+  }
+  if (!list.length) box.innerHTML += '<div class="empty" style="grid-column:1/-1">Koi item nahi mila</div>';
   let last = null, gbox = null, gi = -1;
   list.forEach(i => {
     if (i.grp && i.grp !== last) {
