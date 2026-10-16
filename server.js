@@ -164,22 +164,22 @@ function logEvent(kind, detail) {
   db.prepare('insert into events(uid,ts,kind,detail) values(?,?,?,?)').run(uid, ts, kind, detail);
   if (syncOn()) enqueue('events', uid, [uid, ts, kind, detail]);
 }
-function orderSheetRow(o, rev) {
+function orderSheetRow(o, rev, fix) {   // fix = cost sudhaar: ulti entry purani tareekh par hi lagti hai
   const m = rev ? -1 : 1, now = fmtDT(new Date());
-  return [rev ? o.uid + ':X' : o.uid, o.order_no, rev ? businessDate() : o.business_date, (rev ? now : o.created_at).slice(11, 16),
+  return [rev ? o.uid + ':X' : o.uid, o.order_no, rev && !fix ? businessDate() : o.business_date, (rev && !fix ? now : o.created_at).slice(11, 16),
     o.type, o.table_no || '', o.customer_name || '', o.phone || '', o.address || '', o.rider || '',
     m * o.subtotal, m * o.discount, m * o.delivery_charge, m * o.service_charge, m * o.total, m * o.cost, m * o.profit,
-    o.payment + (o.gift_by ? ' - ' + o.gift_by : ''), rev ? 'cancel' : 'done', rev ? now : o.created_at];
+    o.payment + (o.gift_by ? ' - ' + o.gift_by : ''), rev ? (fix ? 'cost-fix' : 'cancel') : 'done', rev && !fix ? now : o.created_at];
 }
-function itemSheetRows(o, rev) {
-  const m = rev ? -1 : 1, ouid = rev ? o.uid + ':X' : o.uid, date = rev ? businessDate() : o.business_date;
+function itemSheetRows(o, rev, fix) {
+  const m = rev ? -1 : 1, ouid = rev ? o.uid + ':X' : o.uid, date = rev && !fix ? businessDate() : o.business_date;
   return o.items.map((i, idx) => [ouid + ':' + (idx + 1), ouid, o.order_no, date, i.item_name, i.variant_label || '',
     m * i.qty, i.price, i.cost || 0, m * i.qty * i.price, m * i.qty * (i.cost || 0), m * i.qty * (i.price - (i.cost || 0)), i.note || '']);
 }
-function enqueueOrder(o, rev) {
-  const row = orderSheetRow(o, rev);
+function enqueueOrder(o, rev, fix) {
+  const row = orderSheetRow(o, rev, fix);
   enqueue('orders', row[0], row);
-  itemSheetRows(o, rev).forEach(r => enqueue('items', r[0], r));
+  itemSheetRows(o, rev, fix).forEach(r => enqueue('items', r[0], r));
 }
 
 // ---------- Google Sheet sync (offline-first: internet aaye to khud chala jata hai) ----------
@@ -482,6 +482,27 @@ admin.post('/items/:id/variants', (req, res) => {
   logEvent('menu', `Naya size: ${it ? it.name : '?'} (${b.label || '-'}) Rs${int(b.price)}`);
   res.json({ id });
 });
+
+// Cost baad mein daalne par: jin purani lines ki cost 0 thi wahi bharte hain (jo pehle se cost ke sath thin wo nahi chhedte)
+function backfillCost(v) {
+  const rows = db.prepare(`select oi.id, oi.order_id from order_items oi join orders o on o.id=oi.order_id
+    where oi.item_name=? and oi.variant_label=? and coalesce(oi.cost,0)=0 and o.status='done'`).all(v.item_name, v.label || '');
+  if (!rows.length) return 0;
+  const ids = [...new Set(rows.map(r => r.order_id))];
+  db.transaction(() => {
+    ids.forEach(oid => {
+      const old = loadOrder(oid);
+      if (old.queued) enqueueOrder(old, true, true);
+      db.prepare('update order_items set cost=? where id in (' + rows.filter(r => r.order_id === oid).map(r => r.id).join(',') + ')').run(v.cost);
+      const items = db.prepare('select qty,cost from order_items where order_id=?').all(oid);
+      const cost = items.reduce((a, i) => a + i.qty * (i.cost || 0), 0);
+      db.prepare('update orders set cost=?, profit=subtotal-discount-?, uid=? where id=?').run(cost, cost, uuid(), oid);
+      if (old.queued) enqueueOrder(loadOrder(oid), false);
+    });
+  })();
+  syncSoon();
+  return ids.length;
+}
 admin.put('/variants/:id', (req, res) => {
   const b = { ...req.body };
   if (b.price !== undefined) b.price = int(b.price);
@@ -494,6 +515,7 @@ admin.put('/variants/:id', (req, res) => {
     const ch = ['label', 'price', 'cost', 'active'].filter(f => o[f] !== n[f]).map(f => `${f} ${o[f]} -> ${n[f]}`);
     if (ch.length) logEvent(ch.some(c => c.startsWith('price') || c.startsWith('cost')) ? 'price_cost' : 'menu', `${o.item_name} (${o.label || '-'}): ${ch.join(', ')}`);
   }
+  if (n && n.cost > 0) { const k = backfillCost(n); if (k) logEvent('price_cost', `${n.item_name} (${n.label || '-'}): ${k} purane orders ki cost (0 thi) ab Rs ${n.cost} se update`); }
   res.json({ ok: true });
 });
 admin.delete('/variants/:id', (req, res) => {
