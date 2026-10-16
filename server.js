@@ -551,8 +551,9 @@ admin.get('/update/check', async (req, res) => {
 admin.post('/update', async (req, res) => {
   try {
     if (!hasGit()) return res.status(400).json({ error: 'Is folder ka GitHub se link nahi hai. setup.bat chalayen.' });
-    const dirty = await run('git', ['status', '--porcelain', '--untracked-files=no']);
+    const dirty = (await run('git', ['status', '--porcelain', '--untracked-files=no'])).split('\n').filter(l => l && !/package-lock\.json$/.test(l)).join('\n');
     if (dirty) return res.status(400).json({ error: 'Is PC par code files mein local tabdeeli hai, update nahi ho sakta:\n' + dirty.slice(0, 200) });
+    await run('git', ['checkout', '--', 'package-lock.json']).catch(() => {});   // npm install ise badal deta hai
     const before = await run('git', ['rev-parse', 'HEAD']);
     await dailyBackup();
     const out = await run('git', ['pull', '--ff-only']);
@@ -561,7 +562,7 @@ admin.post('/update', async (req, res) => {
     const changed = (await run('git', ['diff', '--name-only', before, after])).split('\n');
     let npmNote = '';
     if (changed.some(f => f === 'package.json' || f === 'package-lock.json')) {
-      await run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--omit=dev'], { shell: process.platform === 'win32', timeout: 170000 });
+      await run(process.platform === 'win32' ? 'npm.cmd' : 'npm', ['install', '--omit=dev', '--no-package-lock'], { shell: process.platform === 'win32', timeout: 170000 });
       npmNote = ' (packages bhi update hue)';
     }
     logEvent('update', `Software update: ${before.slice(0, 7)} -> ${after.slice(0, 7)}`);
