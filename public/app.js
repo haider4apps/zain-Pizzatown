@@ -96,7 +96,7 @@ function renderMenu() {
     i.variants.forEach(v => {
       const b = el('button', 'chip' + (v.price > 0 ? '' : ' na'),
         (v.label ? `<small>${esc(v.label)}</small>` : '') + (v.price > 0 ? `<b>${v.price}</b>` : 'price?'));
-      b.onclick = () => { if (v.price > 0) { addToCart(i, v); b.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); } else toast('Is ki price set nahi. Admin se price daalein.'); };
+      b.onclick = () => { if (v.price > 0) { addToCart(i, v); b.classList.remove('hit'); card.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); card.classList.add('hit'); } else toast('Is ki price set nahi. Admin se price daalein.'); };
       chips.appendChild(b);
     });
     card.appendChild(chips); (gbox || box).appendChild(card);

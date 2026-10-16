@@ -106,3 +106,8 @@ a.btn{color:inherit}
 .hdr{grid-column:1/-1;display:flex;align-items:center;gap:12px;padding:10px 14px;border-radius:12px;background:linear-gradient(90deg,color-mix(in srgb,var(--gold) 22%,var(--panel)),var(--panel))}
 .hdr .i{width:46px;height:46px;color:var(--gold)}
 .hdr b{font-size:20px;letter-spacing:.5px}.hdr small{display:block;color:var(--mute);font-size:12px}
+
+.card{transition:border-color .12s,background .12s,box-shadow .12s}
+.card:hover{border-color:var(--c);background:color-mix(in srgb,var(--c) 9%,var(--panel))}
+.card.hit{animation:cardhit .6s ease-out;border-color:var(--c)}
+@keyframes cardhit{0%{background:color-mix(in srgb,var(--c) 60%,var(--panel));box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 55%,transparent)}100%{background:color-mix(in srgb,var(--c) 9%,var(--panel));box-shadow:0 0 0 0 transparent}}
