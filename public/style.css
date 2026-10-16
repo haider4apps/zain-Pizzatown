@@ -117,5 +117,5 @@ a.btn{color:inherit}
 .chip{background:rgba(10,12,16,.55);border-color:color-mix(in srgb,var(--c) 50%,transparent)}
 .chip:hover{background:color-mix(in srgb,var(--c) 45%,rgba(10,12,16,.6))}
 @keyframes cardhit{0%{background:color-mix(in srgb,var(--c) 70%,var(--panel));box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 55%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
-.card .det{color:#e6e8ec;font-size:16px;line-height:1.45;font-weight:500}
+.card .det{color:var(--mute);font-size:16px;line-height:1.45;font-weight:500}
 .chip small{font-size:13px;opacity:.95;font-weight:700}
