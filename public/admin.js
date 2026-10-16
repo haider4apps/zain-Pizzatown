@@ -100,7 +100,8 @@ async function viewSales() {
   ${r.missing_cost ? `<div class="box" style="border-color:var(--red)">⚠ ${r.missing_cost} items/sizes ki cost 0 hai - un ka profit galat (zyada) dikhega. Menu &amp; Prices mein cost daalein.</div>` : ''}
   <div class="box"><b>Din ba din</b>${tbl(['Date', 'Orders', 'Sale', 'Cost', 'Profit', 'Kharcha', 'Net'], r.days.map(d => [d.d, d.n, money(d.total), money(d.cost), money(d.profit), money(d.expenses), money(d.net)]))}</div>
   <div class="box"><b>Order type</b>${tbl(['Type', 'Orders', 'Amount'], r.by_type.map(x => [TYPES[x.type], x.n, money(x.total)]))}
-    <b>Payment</b>${tbl(['Method', 'Orders', 'Amount'], r.by_payment.map(x => [x.payment, x.n, money(x.total)]))}
+    <b>Payment</b>${tbl(['Method', 'Orders', 'Amount'], r.by_payment.map(x => [x.payment === 'Gift' ? 'Gift / Free' : x.payment, x.n, money(x.total)]))}
+    ${r.gifts.length ? `<b>Gift / Free orders (kis ne diye)</b>${tbl(['Kis ki taraf se', 'Orders', 'Bill value', 'Lagat (nuqsan)'], r.gifts.map(g => [esc(g.by_whom), g.n, money(g.value), money(g.cost)]))}` : ''}
     <b>Delivery riders</b>${tbl(['Rider', 'Orders', 'Total collected', 'Delivery charges'], r.riders.map(x => [esc(x.rider || '(no name)'), x.n, money(x.total), money(x.delivery)]))}</div>
   <div class="box"><b>Top items</b>${tbl(['Item', 'Qty', 'Amount', 'Profit'], r.top.map(x => [esc(x.item_name + (x.variant_label ? ' (' + x.variant_label + ')' : '')), x.qty, money(x.amount), money(x.profit)]))}</div>
   <div class="box"><b>Orders</b>${tbl(['#', 'Date', 'Time', 'Type', 'Who', 'Total', ''], r.orders.map(o => [
@@ -149,6 +150,7 @@ const FIELDS = [
   ['Shop (bill par)', null],
   ['shop_name', 'Shop name'], ['shop_tagline', 'Tagline'], ['shop_address', 'Address'], ['shop_phone', 'Phone'], ['bill_footer', 'Bill footer (Urdu)'], ['bill_footer_en', 'Bill footer (English)'],
   ['slip_lang_default', 'Slip ki default zaban', 'select', [['ur', 'اردو'], ['en', 'English']]],
+  ['gift_needs_pin', 'Gift / Free order ke liye Admin PIN zaroori', 'check'],
   ['edit_window_min', 'Order badalne ka waqt (minute). Uske baad sirf Admin PIN se', 'number'],
   ['Charges', null],
   ['delivery_charge_enabled', 'Delivery charges ka option (order lete waqt puchna)', 'check'],
@@ -180,6 +182,8 @@ async function viewSettings() {
   <div class="box" id="syncBox" style="background:var(--panel2)">Sheet sync check ho raha hai...</div>
   <div class="box" id="updBox" style="background:var(--panel2)"><b style="color:var(--gold)">Software update (GitHub)</b><div id="updInfo">...</div>
     <div class="r"><button class="btn s" id="updCheck">Check for update</button><button class="btn gold s" id="updGo" style="display:none">Update karein</button></div></div>
+  <div class="box" style="background:var(--panel2)"><b style="color:var(--red)">Go-Live: test data saaf</b><div style="color:var(--mute);font-size:13px">Saray test orders, kharche aur log delete hon ge (pehle backup banta hai). Menu, prices aur settings wahi rahen ge. Sheet ke purane rows haath se delete karni hon gi. Ye sirf dukan mein asli kaam shuru karne se pehle dabayen.</div>
+    <div class="r"><button class="btn red s" id="goLive">Test data saaf karein</button></div></div>
   <div style="color:var(--mute);font-size:13px">Mobile se order lene ke liye PC aur mobile aik hi WiFi par hon, aur mobile ke browser mein PC ka address kholen (server ki black window mein "Mobile par:" ke aage likha hota hai).</div></div>`;
   guard(async () => {
     const y = await A('/sync');
@@ -199,6 +203,12 @@ async function viewSettings() {
   $('#updGo').onclick = () => guard(async () => {
     if (!confirm('Update karein? Software 5 second ke liye band ho kar dobara chalega. Data safe rahta hai.')) return;
     const u = await A('/update', 'POST'); toast(u.message, 6000); $('#updInfo').textContent = u.message;
+  });
+  $('#goLive').onclick = () => guard(async () => {
+    const w = prompt('Saray orders/kharche/log delete ho jayen ge. Pakka? Confirm ke liye RESET likhein:');
+    if (w !== 'RESET') return toast('Cancel kiya, kuch delete nahi hua', 3000);
+    const x = await A('/golive-reset', 'POST', { confirm: 'RESET' });
+    toast('Saaf ho gaya. Backup: ' + x.backup, 6000); viewSettings();
   });
   $('#pvS').onclick = () => guard(async () => {
     const list = await (await fetch('/api/orders/recent')).json();

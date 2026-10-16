@@ -4,11 +4,11 @@ const LANG = {
   ur: { type: { dinein: 'ڈائن اِن', takeaway: 'ٹیک اوے', delivery: 'ڈیلیوری' }, orderNo: 'آرڈر نمبر', kind: 'قسم', time: 'وقت', name: 'نام', phone: 'فون',
     addr: 'پتہ', sub: 'ذیلی رقم', disc: 'رعایت', del: 'ڈیلیوری چارجز', svc: 'سروس چارجز', total: 'کل رقم', pay: 'ادائیگی',
     kitchen: 'کچن سلپ', note: 'نوٹ: ', onote: 'آرڈر نوٹ: ', dslip: 'ڈیلیوری سلپ', rider: 'رائیڈر', paid: 'ادا شدہ', nocollect: 'رقم وصول نہیں کرنی',
-    collect: 'وصولی کریں', cxl: 'آرڈر نمبر', cxl2: 'کینسل - نیا نمبر', delIncl: 'ڈیلیوری چارجز شامل: ', cls: '' },
+    collect: 'وصولی کریں', gift: 'تحفہ / مفت', cxl: 'آرڈر نمبر', cxl2: 'کینسل - نیا نمبر', delIncl: 'ڈیلیوری چارجز شامل: ', cls: '' },
   en: { type: { dinein: 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery' }, orderNo: 'Order No', kind: 'Type', time: 'Time', name: 'Name', phone: 'Phone',
     addr: 'Address', sub: 'Subtotal', disc: 'Discount', del: 'Delivery charges', svc: 'Service charges', total: 'TOTAL', pay: 'Payment',
     kitchen: 'KITCHEN SLIP', note: 'Note: ', onote: 'Order note: ', dslip: 'DELIVERY SLIP', rider: 'Rider', paid: 'PAID', nocollect: 'Do not collect cash',
-    collect: 'COLLECT', cxl: 'Order #', cxl2: 'CANCELLED - new no.', delIncl: 'Delivery charges included: ', cls: ' en' },
+    collect: 'COLLECT', gift: 'GIFT / FREE', cxl: 'Order #', cxl2: 'CANCELLED - new no.', delIncl: 'Delivery charges included: ', cls: ' en' },
 };
 const chg = (o, L) => o.replaces ? `<div class="c" style="border:3px solid #000;font-weight:800;font-size:calc(16 * var(--f));padding:3px;margin:4px 0">${L.cls ? L.cxl + o.replaces + ' ' + L.cxl2 + ' #' + o.order_no : L.cxl + ' ' + o.replaces + ' ' + L.cxl2 + ' ' + o.order_no}</div>` : '';
 const rs = n => 'Rs ' + Number(n || 0).toLocaleString('en-PK');
@@ -43,7 +43,7 @@ function bill(o, S, L) {
     ${o.delivery_charge ? row(L.del, rs(o.delivery_charge)) : ''}
     ${o.service_charge ? row(L.svc, rs(o.service_charge)) : ''}
     ${row(L.total, rs(o.total), 'grand')}
-    ${row(L.pay, o.payment)}
+    ${row(L.pay, o.payment === 'Gift' ? L.gift + (o.gift_by ? ' (' + esc(o.gift_by) + ')' : '') : o.payment)}
     <hr>
     <div class="c">${esc(L.cls ? (S.bill_footer_en || 'Thank you! Please visit again') : S.bill_footer)}</div>
   </div>`;
@@ -64,7 +64,7 @@ function kitchen(o, L) {
 
 function delivery(o, L) {
   const items = o.items.map(i => `<div style="direction:ltr;font-family:'Segoe UI',Tahoma,Arial,sans-serif;font-size:calc(13 * var(--f))">${i.qty} × ${lineName(i)}</div>`).join('');
-  const paid = o.payment !== 'Cash';
+  const paid = o.payment !== 'Cash' || o.total === 0;
   return `<div class="slip${L.cls}">
     ${chg(o, L)}<div class="c title">${L.dslip}</div>
     <div class="c big">#${o.order_no}</div>

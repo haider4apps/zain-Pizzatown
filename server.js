@@ -51,6 +51,7 @@ addCol('variants', 'cost', 'integer default 0');
 addCol('order_items', 'cost', 'integer default 0');
 addCol('orders', 'uid', 'text');
 addCol('orders', 'replaces', 'integer');
+addCol('orders', 'gift_by', 'text');
 addCol('orders', 'cost', 'integer default 0');
 addCol('orders', 'profit', 'integer default 0');
 addCol('orders', 'queued', 'integer default 0');
@@ -75,6 +76,7 @@ const DEFAULTS = {
   shop_phone: '0321-7809035',
   bill_footer: 'شکریہ! دوبارہ تشریف لائیں',
   bill_footer_en: 'Thank you! Please visit again',
+  gift_needs_pin: '1',              // Gift/Free order ke liye Admin PIN zaroori (1) ya cashier khud de sakta hai (0)
   edit_window_min: '2',            // order dene ke itne minute tak cashier badal sakta hai (uske baad Admin PIN)
   slip_lang_default: 'ur',        // ur = اردو slip, en = English slip (checkout par badal sakte hain)
   admin_pin: '1234',
@@ -167,7 +169,7 @@ function orderSheetRow(o, rev) {
   return [rev ? o.uid + ':X' : o.uid, o.order_no, rev ? businessDate() : o.business_date, (rev ? now : o.created_at).slice(11, 16),
     o.type, o.table_no || '', o.customer_name || '', o.phone || '', o.address || '', o.rider || '',
     m * o.subtotal, m * o.discount, m * o.delivery_charge, m * o.service_charge, m * o.total, m * o.cost, m * o.profit,
-    o.payment, rev ? 'cancel' : 'done', rev ? now : o.created_at];
+    o.payment + (o.gift_by ? ' - ' + o.gift_by : ''), rev ? 'cancel' : 'done', rev ? now : o.created_at];
 }
 function itemSheetRows(o, rev) {
   const m = rev ? -1 : 1, ouid = rev ? o.uid + ':X' : o.uid, date = rev ? businessDate() : o.business_date;
@@ -268,6 +270,7 @@ app.get('/api/riders', (req, res) =>
 
 // Order ke lines/totals server par dobara hisab hote hain (client par bharosa nahi).
 // keepItems: edit ke waqt purani lines (price/cost wahi rehti hain jo order dete waqt thi)
+const GIFT_BY = ['Owner', 'Partner 1', 'Partner 2', 'Staff', 'Customer'];
 function calcOrder(b, S, keepItems) {
   const type = ['dinein', 'takeaway', 'delivery'].includes(b.type) ? b.type : 'takeaway';
   if (!Array.isArray(b.items) || !b.items.length) return { err: 'Cart khali hai' };
@@ -298,6 +301,10 @@ function calcOrder(b, S, keepItems) {
     const val = Number(S.service_charge_value) || 0;
     service = S.service_charge_type === 'percent' ? Math.round((subtotal - discount) * val / 100) : Math.round(val);
   }
+  if (b.payment === 'Gift') {   // gift: bill Rs 0, lagat nuqsan ban kar profit mein ayegi
+    const by = GIFT_BY.includes(b.gift_by) ? b.gift_by : 'Owner';
+    return { type, lines, subtotal, cost, discount: subtotal, profit: -cost, delivery: 0, service: 0, total: 0, gift: true, gift_by: by };
+  }
   return { type, lines, subtotal, cost, discount, profit, delivery, service, total: subtotal - discount + delivery + service };
 }
 const editLeft = o => Math.max(0, Math.round((Number(S_editMin()) * 60) - (Date.now() - new Date(o.created_at.replace(' ', 'T')).getTime()) / 1000));
@@ -308,13 +315,13 @@ function insertOrder(b, calc, S, replaces) {
   const now = new Date(), bd = businessDate(), sync = syncOn();
   const no = db.prepare('select coalesce(max(order_no),0)+1 n from orders where business_date=?').get(bd).n;
   const oid = db.prepare(`insert into orders(uid,order_no,business_date,type,table_no,customer_name,phone,address,rider,
-    subtotal,discount,delivery_charge,service_charge,total,cost,profit,payment,note,printed,print_at,created_at,queued,replaces)
-    values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?)`).run(
+    subtotal,discount,delivery_charge,service_charge,total,cost,profit,payment,note,printed,print_at,created_at,queued,replaces,gift_by)
+    values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,?,?)`).run(
     uuid(), no, bd, type, String(b.table_no || '').slice(0, 20), String(b.customer_name || '').slice(0, 80),
     String(b.phone || '').slice(0, 30), String(b.address || '').slice(0, 300), String(b.rider || '').slice(0, 60),
     subtotal, discount, delivery, service, total, cost, profit,
-    ['Cash', 'Online', 'Card'].includes(b.payment) ? b.payment : 'Cash',
-    String(b.note || '').slice(0, 300), fmtDT(now), fmtDT(now), sync ? 1 : 0, replaces || null).lastInsertRowid;
+    calc.gift ? 'Gift' : (['Cash', 'Online', 'Card'].includes(b.payment) ? b.payment : 'Cash'),
+    String(b.note || '').slice(0, 300), fmtDT(now), fmtDT(now), sync ? 1 : 0, replaces || null, calc.gift ? calc.gift_by : null).lastInsertRowid;
   const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note) values(?,?,?,?,?,?,?,?)');
   lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note));
   const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
@@ -328,7 +335,7 @@ app.post('/api/orders', (req, res) => {
     const S = getSettings();
     const calc = calcOrder(b, S, null);
     if (calc.err) return res.status(400).json({ error: calc.err });
-    const { type, lines, subtotal, cost, discount, profit, delivery, service, total } = calc;
+    if (calc.gift && S.gift_needs_pin === '1' && req.get('x-admin-pin') !== S.admin_pin) return res.status(403).json({ error: 'Gift ke liye Admin PIN chahiye', code: 'GIFT_PIN' });
     const sync = syncOn();
     const id = db.transaction(() => insertOrder(b, calc, S, null))();
     if (sync) syncSoon();
@@ -348,6 +355,7 @@ app.put('/api/orders/:id', (req, res) => {
     if (!pinOk && editLeft(o) <= 0) return res.status(403).json({ error: 'Change ka waqt khatam. Admin PIN chahiye.', code: 'LOCKED' });
     const calc = calcOrder(b, S, o.items);
     if (calc.err) return res.status(400).json({ error: calc.err });
+    if (calc.gift && S.gift_needs_pin === '1' && !pinOk) return res.status(403).json({ error: 'Gift ke liye Admin PIN chahiye', code: 'GIFT_PIN' });
     const late = editLeft(o) <= 0;
     const nid = db.transaction(() => {
       db.prepare("update orders set status='cancelled' where id=?").run(o.id);
@@ -495,6 +503,22 @@ admin.delete('/variants/:id', (req, res) => {
   res.json({ ok: true });
 });
 
+// Go-Live: test data saaf (menu/prices/settings wahi rehte hain). Pehle backup banta hai.
+admin.post('/golive-reset', async (req, res) => {
+  if ((req.body || {}).confirm !== 'RESET') return res.status(400).json({ error: 'Confirm word likhein' });
+  try {
+    fs.mkdirSync(BACKUPS, { recursive: true });
+    const file = path.join(BACKUPS, `before-golive-${fmtDT(new Date()).replace(/[: ]/g, '-')}.db`);
+    await db.backup(file);
+    db.transaction(() => {
+      ['order_items', 'orders', 'expenses', 'events', 'outbox'].forEach(t => db.prepare(`delete from ${t}`).run());
+      setSetting('sync_since', fmtDT(new Date()));
+      setSetting('last_sync_ok', ''); setSetting('last_sync_error', '');
+    })();
+    logEvent('setting', 'Go-Live: test data saaf kiya gaya');
+    res.json({ ok: true, backup: path.basename(file) });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
 admin.post('/orders/:id/cancel', (req, res) => {
   const o = loadOrder(req.params.id);
   if (!o) return res.status(404).json({ error: 'Order nahi mila' });
@@ -560,12 +584,13 @@ admin.get('/report', (req, res) => {
     from, to, totals, days: dayList,
     missing_cost: db.prepare('select count(*) n from variants v join items i on i.id=v.item_id where v.active=1 and i.active=1 and v.price>0 and v.cost<=0').get().n,
     by_type: db.prepare(`select type, count(*) n, sum(total) total, sum(profit) profit from orders where ${W} group by type`).all(...A),
+    gifts: db.prepare(`select coalesce(gift_by,'-') by_whom, count(*) n, sum(subtotal) value, sum(cost) cost from orders where ${W} and payment='Gift' group by gift_by`).all(...A),
     by_payment: db.prepare(`select payment, count(*) n, sum(total) total from orders where ${W} group by payment`).all(...A),
     riders: db.prepare(`select rider, count(*) n, sum(total) total, sum(delivery_charge) delivery from orders where ${W} and type='delivery' group by rider`).all(...A),
     top: db.prepare(`select oi.item_name, oi.variant_label, sum(oi.qty) qty, sum(oi.qty*oi.price) amount, sum(oi.qty*(oi.price-oi.cost)) profit
       from order_items oi join orders o on o.id=oi.order_id where o.business_date between ? and ? and o.status='done'
       group by oi.item_name, oi.variant_label order by qty desc limit 15`).all(...A),
-    orders: db.prepare(`select id,order_no,business_date,type,table_no,customer_name,rider,total,profit,payment,status,printed,created_at
+    orders: db.prepare(`select id,order_no,business_date,type,table_no,customer_name,rider,total,profit,payment,gift_by,status,printed,created_at
       from orders where business_date between ? and ? order by id desc limit 300`).all(...A),
   });
 });

@@ -119,6 +119,7 @@ function openCheckout() {
 }
 function calc() {
   const sub = cartTotal();
+  if (co.payment === 'Gift') return { sub, disc: sub, del: 0, svc: 0, total: 0 };
   const disc = Math.min(Math.max(+co.discount || 0, 0), sub);
   let del = 0, svc = 0;
   if (co.type === 'delivery' && settings.delivery_charge_enabled === '1') del = Math.max(+co.delivery_charge || 0, 0);
@@ -147,7 +148,8 @@ function renderCheckout() {
     ${co.type === 'delivery' && dEn ? `<div class="f"><label>Delivery charges (Rs)</label><input id="f_del" type="number" min="0" inputmode="numeric" value="${co.delivery_charge || ''}" placeholder="0 = free"></div>` : '<div></div>'}
   </div>
   ${co.type === 'dinein' && sEn ? `<label class="chk"><input type="checkbox" id="f_svc" ${co.service ? 'checked' : ''}> Service charges lagayein (${svcLabel})</label>` : ''}
-  <div class="f"><label>Payment</label><select id="f_pay">${['Cash', 'Online', 'Card'].map(p => `<option ${co.payment === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>
+  <div class="f"><label>Payment</label><select id="f_pay">${['Cash', 'Online', 'Card', 'Gift'].map(p => `<option value="${p}" ${co.payment === p ? 'selected' : ''}>${p === 'Gift' ? 'Gift / Free' : p}</option>`).join('')}</select></div>
+  ${co.payment === 'Gift' ? `<div class="f"><label>Gift kis ki taraf se?</label><select id="f_gby">${['Owner', 'Partner 1', 'Partner 2', 'Staff', 'Customer'].map(p => `<option ${co.gift_by === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>` : ''}
   <div class="f"><label>Order note (optional)</label><input id="f_note" value="${esc(co.note)}"></div>
   <div class="f"><label>Slip ki zaban</label><div class="seg two-seg" id="langSeg"><button data-l="ur" class="${co.slip_lang === 'ur' ? 'on' : ''}">اردو</button><button data-l="en" class="${co.slip_lang === 'en' ? 'on' : ''}">English</button></div></div>
   <div class="sum" id="sum"></div>
@@ -155,6 +157,7 @@ function renderCheckout() {
   sh.querySelectorAll('#typeSeg button').forEach(b => b.onclick = () => { readForm(); co.type = b.dataset.t; renderCheckout(); });
   sh.querySelectorAll('#langSeg button').forEach(b => b.onclick = () => { readForm(); co.slip_lang = b.dataset.l; renderCheckout(); });
   sh.querySelectorAll('input,textarea,select').forEach(i => i.oninput = () => { readForm(); updSum(); });
+  const fp = $('#f_pay'); if (fp) fp.onchange = () => { readForm(); renderCheckout(); };
   $('#coCancel').onclick = () => $('#coModal').classList.remove('on');
   $('#coOk').onclick = placeOrder;
   updSum();
@@ -163,7 +166,7 @@ function readForm() {
   const g = id => { const e = $('#' + id); return e ? e.value : undefined; };
   const set = (k, id) => { const v = g(id); if (v !== undefined) co[k] = v; };
   set('table_no', 'f_table'); set('customer_name', 'f_name'); set('phone', 'f_phone'); set('address', 'f_addr');
-  set('rider', 'f_rider'); set('discount', 'f_disc'); set('delivery_charge', 'f_del'); set('payment', 'f_pay'); set('note', 'f_note');
+  set('rider', 'f_rider'); set('discount', 'f_disc'); set('delivery_charge', 'f_del'); set('payment', 'f_pay'); set('note', 'f_note'); set('gift_by', 'f_gby');
   const s = $('#f_svc'); if (s) co.service = s.checked;
 }
 function updSum() {
@@ -179,12 +182,19 @@ async function placeOrder() {
   if (placing) return;
   readForm();
   if (co.type === 'delivery' && !co.address.trim()) { toast('Delivery ke liye address likhein'); return; }
+  let giftPin = '';
+  if (co.payment === 'Gift' && settings.gift_needs_pin === '1') {
+    giftPin = (editing && editing.pin) || prompt('Gift/Free order ke liye Admin PIN daalein:');
+    if (!giftPin) return;
+    const r = await fetch('/api/admin/login', { headers: { 'x-admin-pin': giftPin } });
+    if (!r.ok) { toast('PIN ghalat hai', 3000); return; }
+  }
   placing = true; $('#coOk').disabled = true;
   try {
-    const o = await api(editing ? '/api/orders/' + editing.id : '/api/orders', { method: editing ? 'PUT' : 'POST', headers: editing && editing.pin ? { 'x-admin-pin': editing.pin } : undefined, body: {
+    const o = await api(editing ? '/api/orders/' + editing.id : '/api/orders', { method: editing ? 'PUT' : 'POST', headers: (giftPin || (editing && editing.pin)) ? { 'x-admin-pin': giftPin || editing.pin } : undefined, body: {
       type: co.type, table_no: co.table_no, customer_name: co.customer_name, phone: co.phone, address: co.address,
       rider: co.rider, discount: +co.discount || 0, delivery_charge: +co.delivery_charge || 0, service: co.service,
-      payment: co.payment, note: co.note, slip_lang: co.slip_lang,
+      payment: co.payment, gift_by: co.gift_by, note: co.note, slip_lang: co.slip_lang,
       items: cart.map(l => l.keep ? { keep: l.keep, qty: l.qty, note: l.note } : { variant_id: l.variant_id, qty: l.qty, note: l.note }) } });
     const wasEdit = editing ? editing.order_no : 0;
     cart = []; co = null; editing = null;
@@ -237,7 +247,7 @@ async function startEdit(o, left) {
     const f = await api('/api/orders/' + o.id);
     cart = f.items.map(i => ({ keep: i.id, name: i.item_name, label: i.variant_label, price: i.price, qty: i.qty, note: i.note || '' }));
     co = { type: f.type, table_no: f.table_no || '', customer_name: f.customer_name || '', phone: f.phone || '', address: f.address || '', rider: f.rider || '',
-      discount: f.discount || 0, payment: f.payment || 'Cash', delivery_charge: f.delivery_charge || 0, service: !!f.service_charge, note: f.note || '',
+      discount: f.discount || 0, payment: f.payment || 'Cash', gift_by: f.gift_by || 'Owner', delivery_charge: f.delivery_charge || 0, service: !!f.service_charge, note: f.note || '',
       slip_lang: f.slip_lang || (settings.slip_lang_default === 'en' ? 'en' : 'ur') };
     editing = { id: o.id, order_no: o.order_no, pin };
     $('#ordModal').classList.remove('on'); $('#cart').classList.add('open');
