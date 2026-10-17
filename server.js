@@ -86,6 +86,7 @@ const DEFAULTS = {
   service_charge_type: 'percent', // percent ya fixed
   service_charge_value: '5',
   paper_mm: '80',
+  slip_margin_mm: '6',
   slip_font_scale: '130',         // slip ka size percent mein (100 = chhota, 200 = bohat bara)
   print_bill: '1',
   print_kitchen: '1',

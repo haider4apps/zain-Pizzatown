@@ -87,7 +87,8 @@ function delivery(o, L) {
     const [o, S] = await Promise.all([fetch('/api/orders/' + id).then(r => r.json()), fetch('/api/settings').then(r => r.json())]);
     const w = parseInt(S.paper_mm) || 80;
     const st = document.createElement('style');
-    st.textContent = `@page{size:${w}mm auto;margin:0}body{width:${w - 8}mm}`;
+    const mg = Math.min(15, Math.max(0, parseFloat(S.slip_margin_mm) || 6));
+    st.textContent = `@page{size:${w}mm auto;margin:0}html,body{box-sizing:border-box}body{width:${w - 2 * mg}mm;margin-left:auto;margin-right:auto}`;
     document.head.appendChild(st);
     const scale = Math.min(250, Math.max(70, parseInt(S.slip_font_scale) || 130)) / 100;
     document.documentElement.style.setProperty('--s', scale);
