@@ -121,10 +121,11 @@ function renderMenu() {
 // ---------------- cart ----------------
 function addToCart(item, v) {
   const l = cart.find(x => x.variant_id === v.id);
-  if (l) l.qty++; else cart.push({ variant_id: v.id, name: item.name, label: v.label, price: v.price, qty: 1, note: '', extras: '' });
+  if (l) l.qty++; else cart.push({ variant_id: v.id, name: item.name, label: v.label, price: v.price, qty: 1, note: '', extras: '', extras_price: 0 });
   renderCart();
 }
-const cartTotal = () => cart.reduce((s, l) => s + l.price * l.qty, 0);
+const lineAmt = l => l.price * l.qty + (+l.extras_price || 0);
+const cartTotal = () => cart.reduce((s, l) => s + lineAmt(l), 0);
 function renderCart() {
   const body = $('#cartBody'); body.innerHTML = '';
   if (editing) {
@@ -134,10 +135,10 @@ function renderCart() {
   if (!cart.length) body.appendChild(el('div', 'empty', 'Cart khali hai.<br>Item ke size/price button par tap karein.'));
   cart.forEach((l, idx) => {
     const d = el('div', 'line');
-    d.innerHTML = `<div class="l1"><span>${esc(l.name)}${l.label ? ' <small style="color:var(--mute)">(' + esc(l.label) + ')</small>' : ''}</span><span>${money(l.price * l.qty)}</span></div>
+    d.innerHTML = `<div class="l1"><span>${esc(l.name)}${l.label ? ' <small style="color:var(--mute)">(' + esc(l.label) + ')</small>' : ''}</span><span>${money(lineAmt(l))}</span></div>
       <div class="l2"><div class="qty"><button data-a="-">−</button><span>${l.qty}</span><button data-a="+">+</button></div>
       <input class="note" placeholder="Note (kam mirch, bina pyaaz...)" value="${esc(l.note)}"></div>
-      <div class="l3"><input class="extra" placeholder="+ Extras (extra cheese, extra drink...)" value="${esc(l.extras || '')}"></div>`;
+      <div class="l3"><input class="extra" placeholder="+ Extras (extra cheese, extra drink...)" value="${esc(l.extras || '')}"><input class="xp" type="number" min="0" inputmode="numeric" placeholder="Rs" value="${l.extras_price || ''}"></div>`;
     d.querySelectorAll('button').forEach(b => b.onclick = () => {
       l.qty += b.dataset.a === '+' ? 1 : -1;
       if (l.qty <= 0) cart.splice(idx, 1);
@@ -145,6 +146,11 @@ function renderCart() {
     });
     d.querySelector('.note').oninput = e => (l.note = e.target.value);
     d.querySelector('.extra').oninput = e => (l.extras = e.target.value);
+    d.querySelector('.xp').oninput = e => {
+      l.extras_price = Math.max(0, parseInt(e.target.value) || 0);
+      d.querySelector('.l1 span:last-child').textContent = money(lineAmt(l));
+      $('#cartTotal').textContent = money(cartTotal()); $('#barTotal').textContent = money(cartTotal());
+    };
     body.appendChild(d);
   });
   const n = cart.reduce((s, l) => s + l.qty, 0);
@@ -243,7 +249,7 @@ async function placeOrder() {
       type: co.type, table_no: co.table_no, customer_name: co.customer_name, phone: co.phone, address: co.address,
       rider: co.rider, discount: +co.discount || 0, delivery_charge: +co.delivery_charge || 0, service: co.service,
       payment: co.payment, gift_by: co.gift_by, note: co.note, slip_lang: co.slip_lang,
-      items: cart.map(l => l.keep ? { keep: l.keep, qty: l.qty, note: l.note, extras: l.extras } : { variant_id: l.variant_id, qty: l.qty, note: l.note, extras: l.extras }) } });
+      items: cart.map(l => l.keep ? { keep: l.keep, qty: l.qty, note: l.note, extras: l.extras, extras_price: l.extras_price || 0 } : { variant_id: l.variant_id, qty: l.qty, note: l.note, extras: l.extras, extras_price: l.extras_price || 0 }) } });
     const wasEdit = editing ? editing.order_no : 0;
     cart = []; co = null; editing = null;
     $('#coModal').classList.remove('on'); $('#cart').classList.remove('open');
@@ -293,7 +299,7 @@ async function startEdit(o, left) {
     }
     if (cart.length && !editing && !confirm('Maujooda cart khali hokar is order ka edit khulega. Theek hai?')) return;
     const f = await api('/api/orders/' + o.id);
-    cart = f.items.map(i => ({ keep: i.id, name: i.item_name, label: i.variant_label, price: i.price, qty: i.qty, note: i.note || '', extras: i.extras || '' }));
+    cart = f.items.map(i => ({ keep: i.id, name: i.item_name, label: i.variant_label, price: i.price, qty: i.qty, note: i.note || '', extras: i.extras || '', extras_price: i.extras_price || 0 }));
     co = { type: f.type, table_no: f.table_no || '', customer_name: f.customer_name || '', phone: f.phone || '', address: f.address || '', rider: f.rider || '',
       discount: f.discount || 0, payment: f.payment || 'Cash', gift_by: f.gift_by || 'Owner', delivery_charge: f.delivery_charge || 0, service: !!f.service_charge, note: f.note || '',
       slip_lang: f.slip_lang || (settings.slip_lang_default === 'en' ? 'en' : 'ur') };
@@ -338,7 +344,7 @@ const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
 let vo = { lang: 'en-IN', text: '', res: null, rec: null, listening: false };
 function addQty(item, v, qty) {
   const l = cart.find(x => x.variant_id === v.id);
-  if (l) l.qty += qty; else cart.push({ variant_id: v.id, name: item.name, label: v.label, price: v.price, qty, note: '', extras: '' });
+  if (l) l.qty += qty; else cart.push({ variant_id: v.id, name: item.name, label: v.label, price: v.price, qty, note: '', extras: '', extras_price: 0 });
 }
 function openVoice() {
   vo.res = null; vo.text = '';

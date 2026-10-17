@@ -53,6 +53,7 @@ addCol('orders', 'uid', 'text');
 addCol('orders', 'replaces', 'integer');
 addCol('orders', 'gift_by', 'text');
 addCol('order_items', 'extras', "text default ''");
+addCol('order_items', 'extras_price', 'integer default 0');
 addCol('orders', 'cost', 'integer default 0');
 addCol('orders', 'profit', 'integer default 0');
 addCol('orders', 'queued', 'integer default 0');
@@ -178,7 +179,7 @@ function orderSheetRow(o, rev, fix) {   // fix = cost sudhaar: ulti entry purani
 function itemSheetRows(o, rev, fix) {
   const m = rev ? -1 : 1, ouid = rev ? o.uid + ':X' : o.uid, date = rev && !fix ? businessDate() : o.business_date;
   return o.items.map((i, idx) => [ouid + ':' + (idx + 1), ouid, o.order_no, date, i.item_name, i.variant_label || '',
-    m * i.qty, i.price, i.cost || 0, m * i.qty * i.price, m * i.qty * (i.cost || 0), m * i.qty * (i.price - (i.cost || 0)), [i.extras ? 'Extra: ' + i.extras : '', i.note || ''].filter(Boolean).join(' | ')]);
+    m * i.qty, i.price, i.cost || 0, m * (i.qty * i.price + (i.extras_price || 0)), m * i.qty * (i.cost || 0), m * (i.qty * (i.price - (i.cost || 0)) + (i.extras_price || 0)), [i.extras ? 'Extra: ' + i.extras + (i.extras_price ? ' (Rs ' + i.extras_price + ')' : '') : '', i.note || ''].filter(Boolean).join(' | ')]);
 }
 function enqueueOrder(o, rev, fix) {
   const row = orderSheetRow(o, rev, fix);
@@ -285,18 +286,19 @@ function calcOrder(b, S, keepItems) {
     const qty = Math.min(99, Math.max(1, int(it.qty, 1)));
     const note = String(it.note || '').slice(0, 200);
     const extras = String(it.extras || '').slice(0, 200);
+    const ep = Math.min(1000000, Math.max(0, int(it.extras_price, 0)));
     if (it.keep && keepItems) {
       const k = keepItems.find(x => x.id === int(it.keep));
       if (!k) return { err: 'Purani line nahi mili' };
-      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note, extras });
+      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note, extras, ep });
       continue;
     }
     const v = getV.get(it.variant_id);
     if (!v) return { err: 'Item menu mein nahi mila' };
     if (v.price <= 0) return { err: `${v.name} ${v.label} ki price set nahi hai (Admin se price daalein)` };
-    lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note, extras });
+    lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note, extras, ep });
   }
-  const subtotal = lines.reduce((s, l) => s + l.price * l.qty, 0);
+  const subtotal = lines.reduce((s, l) => s + l.price * l.qty + l.ep, 0);
   const cost = lines.reduce((s, l) => s + l.cost * l.qty, 0);
   const discount = Math.min(int(b.discount), subtotal);
   const profit = subtotal - discount - cost;
@@ -327,8 +329,8 @@ function insertOrder(b, calc, S, replaces) {
     subtotal, discount, delivery, service, total, cost, profit,
     calc.gift ? 'Gift' : (['Cash', 'Online', 'Card'].includes(b.payment) ? b.payment : 'Cash'),
     String(b.note || '').slice(0, 300), fmtDT(now), fmtDT(now), sync ? 1 : 0, replaces || null, calc.gift ? calc.gift_by : null).lastInsertRowid;
-  const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras) values(?,?,?,?,?,?,?,?,?)');
-  lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras));
+  const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price) values(?,?,?,?,?,?,?,?,?,?)');
+  lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras, l.ep));
   const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
   db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
   if (sync) enqueueOrder(loadOrder(oid), false);
