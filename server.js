@@ -6,6 +6,7 @@ const os = require('os');
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const PKG = require('./package.json');
+const journal = require('./journal');
 
 const PORT = process.env.PORT || 3000;
 const DATA = path.join(__dirname, 'data');
@@ -102,9 +103,11 @@ const DEFAULTS = {
   sync_since: '',                 // (internal) sync kab shuru hua
   last_sync_ok: '',               // (internal)
   last_sync_error: '',            // (internal)
+  golive_done: '',                // (internal) Go-Live aik hi baar
+  last_alive: '',                 // (internal) POS aakhri baar kab chal raha tha
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error']);
+const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive']);
+const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -164,6 +167,7 @@ function publicOrder(o) {
 const syncOn = () => { const S = getSettings(); return !!(S.sheet_url && S.sheet_key && S.sync_since); };
 function enqueue(kind, uid, row) {
   db.prepare('insert into outbox(kind,uid,payload,created_at) values(?,?,?,?)').run(kind, uid, JSON.stringify(row), fmtDT(new Date()));
+  journal.add(kind, uid, row);      // chhupi copy (app folder se bahar)
 }
 function logEvent(kind, detail) {
   const uid = uuid(), ts = fmtDT(new Date());
@@ -230,6 +234,55 @@ setInterval(() => syncOnce().catch(() => {}), 20000);
 let syncTimer;
 const syncSoon = () => { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncOnce().catch(() => {}), 1500); };
 
+// ---------- journal se dobara bhejna + offline / POS-band ka hisab ----------
+function reconcileJournal() {
+  try {
+    if (!syncOn()) return;
+    const { rows, broken } = journal.pending();
+    const have = new Set(db.prepare('select kind||\'|\'||uid k from outbox').all().map(r => r.k));
+    const ins = db.prepare('insert into outbox(kind,uid,payload,created_at) values(?,?,?,?)');
+    let n = 0;
+    db.transaction(() => rows.forEach(e => {
+      if (have.has(e.k + '|' + e.u)) return;
+      ins.run(e.k, e.u, JSON.stringify(e.p), fmtDT(new Date())); n++;
+    }))();
+    if (n) { logEvent('setting', `Journal se ${n} records dobara queue mein daale gaye`); syncSoon(); }
+    if (broken && !reconcileJournal.warned) { reconcileJournal.warned = true; logEvent('setting', `Journal mein ${broken} kharab/badli hui lines mili`); }
+  } catch (e) { console.error('journal:', e.message); }
+}
+const minsBetween = (a, b) => Math.round((new Date(b.replace(' ', 'T')) - new Date(a.replace(' ', 'T'))) / 60000);
+let online = true, offlineSince = null;
+async function monitorTick() {
+  const now = fmtDT(new Date());
+  setSetting('last_alive', now);
+  const S = getSettings();
+  if (!S.sheet_url || !S.sync_since) return;
+  let ok = false;
+  try {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(S.sheet_url, { redirect: 'follow', signal: ctrl.signal }); clearTimeout(t);
+    ok = r.status < 500;
+  } catch (e) { ok = false; }
+  if (!ok && online) { online = false; offlineSince = now; }
+  else if (ok && !online) {
+    const m = minsBetween(offlineSince, now);
+    online = true;
+    logEvent('offline', `Internet band raha: ${offlineSince.slice(11, 16)} se ${now.slice(11, 16)} (${m} minute)`);
+    offlineSince = null; syncSoon();
+  }
+}
+function startupCheck() {
+  const S = getSettings(), now = fmtDT(new Date());
+  if (S.last_alive && syncOn()) {
+    const m = minsBetween(S.last_alive, now);
+    if (m >= 3) logEvent('offline', `POS band tha: ${S.last_alive.slice(11, 16)} se ${now.slice(11, 16)} (${m} minute)`);
+  }
+  setSetting('last_alive', now);
+  reconcileJournal();
+}
+setInterval(() => monitorTick().catch(() => {}), 60000);
+setInterval(reconcileJournal, 5 * 60000);
+
 // ---------- daily backup ----------
 async function dailyBackup() {
   try {
@@ -266,6 +319,12 @@ app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/api/menu', (req, res) => res.json(fullMenu(false)));
+// POS header ke liye (admin PIN ke baghair, sirf ginti)
+app.get('/api/sync/pending', (req, res) => {
+  const S = getSettings();
+  res.json({ on: !!(S.sheet_url && S.sheet_key && S.sync_since), online, pending: db.prepare('select count(*) n from outbox where synced_at is null').get().n, last_ok: S.last_sync_ok || '' });
+});
+
 app.get('/api/settings', (req, res) => {
   const s = getSettings(); SECRET.forEach(k => delete s[k]); res.json(s);
 });
@@ -431,7 +490,7 @@ admin.put('/settings', (req, res) => {
     logEvent('setting', 'Google Sheet sync shuru');
   }
   res.json({ ok: true });
-  if (S.sheet_url && S.sheet_key) syncSoon();
+  if (S.sheet_url && S.sheet_key) { reconcileJournal(); syncSoon(); }
 });
 
 admin.post('/categories', (req, res) => {
@@ -536,6 +595,7 @@ admin.delete('/variants/:id', (req, res) => {
 // Go-Live: test data saaf (menu/prices/settings wahi rehte hain). Pehle backup banta hai.
 admin.post('/golive-reset', async (req, res) => {
   if ((req.body || {}).confirm !== 'RESET') return res.status(400).json({ error: 'Confirm word likhein' });
+  if (getSettings().golive_done) return res.status(403).json({ error: 'Go-Live pehle ho chuka hai aur lock hai. Unlock sirf developer kar sakta hai.' });
   try {
     fs.mkdirSync(BACKUPS, { recursive: true });
     const file = path.join(BACKUPS, `before-golive-${fmtDT(new Date()).replace(/[: ]/g, '-')}.db`);
@@ -544,7 +604,9 @@ admin.post('/golive-reset', async (req, res) => {
       ['order_items', 'orders', 'expenses', 'events', 'outbox'].forEach(t => db.prepare(`delete from ${t}`).run());
       setSetting('sync_since', fmtDT(new Date()));
       setSetting('last_sync_ok', ''); setSetting('last_sync_error', '');
+      setSetting('golive_done', fmtDT(new Date()));
     })();
+    journal.marker();     // is se pehle ki journal rows ab dobara nahi bheji jayen gi
     logEvent('setting', 'Go-Live: test data saaf kiya gaya');
     res.json({ ok: true, backup: path.basename(file) });
   } catch (e) { res.status(500).json({ error: e.message }); }
@@ -632,7 +694,7 @@ admin.get('/sync', (req, res) => {
   const S = getSettings();
   res.json({
     configured: !!(S.sheet_url && S.sheet_key), since: S.sync_since, last_ok: S.last_sync_ok, last_error: S.last_sync_error,
-    pending: db.prepare('select count(*) n from outbox where synced_at is null').get().n,
+    pending: db.prepare('select count(*) n from outbox where synced_at is null').get().n, golive_done: S.golive_done || '',
   });
 });
 admin.post('/sync/now', async (req, res) => res.json(await syncOnce()));
@@ -680,6 +742,7 @@ function friendlyGitError(m) {
 
 app.use('/api/admin', admin);
 
+startupCheck();
 const server = app.listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
   console.log(`Pizza Town POS v${PKG.version} chal gaya.`);

@@ -313,6 +313,19 @@ async function startEdit(o, left) {
 // Jis device (PC) se print karna ho wahan "Printer" button ON karein. Mobile se aaye orders bhi yahan print honge.
 const isStation = () => localStorage.getItem('station') === '1';
 let printing = false;
+async function updSync() {
+  const el = $('#syncPill');
+  try {
+    const j = await (await fetch('/api/sync/pending')).json();
+    if (!j.on) { el.hidden = true; return; }
+    el.hidden = false;
+    const bad = !j.online;
+    el.className = 'syncpill ' + (bad ? 'bad' : j.pending ? 'wait' : 'ok');
+    el.textContent = bad ? `⚠ Net band${j.pending ? ' · ' + j.pending + ' baqi' : ''}` : j.pending ? `⏳ ${j.pending} sync baqi` : '✓ Sheet sync';
+    el.title = 'Aakhri kamyab sync: ' + (j.last_ok || '-');
+  } catch (e) { el.hidden = true; }
+}
+setInterval(updSync, 15000); updSync();
 function updStation() { const b = $('#btnStation'); b.textContent = 'Printer: ' + (isStation() ? 'ON' : 'OFF'); b.classList.toggle('stn', isStation()); }
 function printOne(id) {
   return new Promise(resolve => {

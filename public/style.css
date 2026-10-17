@@ -120,3 +120,8 @@ a.btn{color:inherit}
 @keyframes cardhit{0%{background:color-mix(in srgb,var(--c) 70%,var(--panel));box-shadow:0 0 0 3px color-mix(in srgb,var(--c) 55%,transparent)}100%{box-shadow:0 0 0 0 transparent}}
 .card .det{color:var(--mute);font-size:16px;line-height:1.45;font-weight:500}
 .chip small{font-size:13px;opacity:.95;font-weight:700}
+
+.syncpill{font-size:12px;font-weight:700;padding:5px 9px;border-radius:99px;white-space:nowrap}
+.syncpill.ok{background:#16351f;color:#6fe08a}
+.syncpill.wait{background:#3a2e10;color:#f5c04a}
+.syncpill.bad{background:#3d1717;color:#ff8a80}
