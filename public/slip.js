@@ -3,11 +3,11 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const LANG = {
   ur: { type: { dinein: 'ڈائن اِن', takeaway: 'ٹیک اوے', delivery: 'ڈیلیوری' }, orderNo: 'آرڈر نمبر', kind: 'قسم', time: 'وقت', name: 'نام', phone: 'فون',
     addr: 'پتہ', sub: 'ذیلی رقم', disc: 'رعایت', del: 'ڈیلیوری چارجز', svc: 'سروس چارجز', total: 'کل رقم', pay: 'ادائیگی',
-    tbl: 'ٹیبل / ٹوکن', kitchen: 'کچن سلپ', note: 'نوٹ: ', onote: 'آرڈر نوٹ: ', dslip: 'ڈیلیوری سلپ', rider: 'رائیڈر', paid: 'ادا شدہ', nocollect: 'رقم وصول نہیں کرنی',
+    tbl: 'ٹیبل / ٹوکن', extra: 'ایکسٹرا: ', kitchen: 'کچن سلپ', note: 'نوٹ: ', onote: 'آرڈر نوٹ: ', dslip: 'ڈیلیوری سلپ', rider: 'رائیڈر', paid: 'ادا شدہ', nocollect: 'رقم وصول نہیں کرنی',
     collect: 'وصولی کریں', gift: 'تحفہ / مفت', cxl: 'آرڈر نمبر', cxl2: 'کینسل - نیا نمبر', delIncl: 'ڈیلیوری چارجز شامل: ', cls: '' },
   en: { type: { dinein: 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery' }, orderNo: 'Order No', kind: 'Type', time: 'Time', name: 'Name', phone: 'Phone',
     addr: 'Address', sub: 'Subtotal', disc: 'Discount', del: 'Delivery charges', svc: 'Service charges', total: 'TOTAL', pay: 'Payment',
-    tbl: 'Table / Token', kitchen: 'KITCHEN SLIP', note: 'Note: ', onote: 'Order note: ', dslip: 'DELIVERY SLIP', rider: 'Rider', paid: 'PAID', nocollect: 'Do not collect cash',
+    tbl: 'Table / Token', extra: 'EXTRA: ', kitchen: 'KITCHEN SLIP', note: 'Note: ', onote: 'Order note: ', dslip: 'DELIVERY SLIP', rider: 'Rider', paid: 'PAID', nocollect: 'Do not collect cash',
     collect: 'COLLECT', gift: 'GIFT / FREE', cxl: 'Order #', cxl2: 'CANCELLED - new no.', delIncl: 'Delivery charges included: ', cls: ' en' },
 };
 const chg = (o, L) => o.replaces ? `<div class="c" style="border:3px solid #000;font-weight:800;font-size:calc(16 * var(--f));padding:3px;margin:4px 0">${L.cls ? L.cxl + o.replaces + ' ' + L.cxl2 + ' #' + o.order_no : L.cxl + ' ' + o.replaces + ' ' + L.cxl2 + ' ' + o.order_no}</div>` : '';
@@ -51,7 +51,7 @@ function bill(o, S, L) {
 
 function kitchen(o, L) {
   const items = o.items.map(i => `<div class="k"><span class="q">${i.qty} ×</span> ${lineName(i)}
-    ${i.details ? `<small>${esc(i.details)}</small>` : ''}${i.note ? `<div class="note">${L.note}${esc(i.note)}</div>` : ''}</div>`).join('');
+    ${i.details ? `<small>${esc(i.details)}</small>` : ''}${i.extras ? `<div class="extra">+ ${L.extra}${esc(i.extras)}</div>` : ''}${i.note ? `<div class="note">${L.note}${esc(i.note)}</div>` : ''}</div>`).join('');
   return `<div class="slip${L.cls}">
     ${chg(o, L)}<div class="c title">${L.kitchen}</div>
     <div class="c big">#${o.order_no}</div>
@@ -88,10 +88,11 @@ function delivery(o, L) {
     const [o, S] = await Promise.all([fetch('/api/orders/' + id).then(r => r.json()), fetch('/api/settings').then(r => r.json())]);
     const w = parseInt(S.paper_mm) || 80;
     const st = document.createElement('style');
+    const tp = Math.min(20, Math.max(0, parseFloat(S.slip_top_mm) || 0)), bt = Math.min(30, Math.max(0, S.slip_bottom_mm === undefined || S.slip_bottom_mm === '' ? 1 : parseFloat(S.slip_bottom_mm) || 0));
     const mg = Math.min(15, Math.max(0, parseFloat(S.slip_margin_mm) || 6));
-    st.textContent = `@page{size:${w}mm auto;margin:0}html,body{box-sizing:border-box}body{width:${w - 2 * mg}mm;margin-left:auto;margin-right:auto}`;
+    st.textContent = `@page{size:${w}mm auto;margin:0}html,body{box-sizing:border-box}body{width:${w - 2 * mg}mm;margin-left:auto;margin-right:auto;padding-top:${tp}mm}.slip{padding-bottom:${bt}mm}`;
     document.head.appendChild(st);
-    const scale = Math.min(250, Math.max(70, parseInt(S.slip_font_scale) || 130)) / 100;
+    const scale = Math.min(250, Math.max(50, parseInt(S.slip_font_scale) || 130)) / 100;
     document.documentElement.style.setProperty('--s', scale);
     const lang = ['ur', 'en'].includes(P.get('lang')) ? P.get('lang') : (['ur', 'en'].includes(o.slip_lang) ? o.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur'));
     const L = LANG[lang];

@@ -51,6 +51,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--gold)}
 .qty button{width:38px;height:38px;border-radius:10px;border:1px solid var(--line);background:var(--panel);font-size:20px;font-weight:700}
 .qty span{min-width:28px;text-align:center;font-weight:800}
 .line input.note{padding:7px 10px;font-size:14px}
+.line .l3{margin-top:6px}.line input.extra{width:100%;padding:7px 10px;font-size:14px;border-color:var(--gold,#e8b94c)}
 #cartFoot{padding:12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
 .tot{display:flex;justify-content:space-between;font-size:20px;font-weight:800}
 #cartbar,#closeCart{display:none}
