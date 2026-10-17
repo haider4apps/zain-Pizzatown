@@ -21,7 +21,7 @@ function when(s) { // "YYYY-MM-DD HH:MM:SS" -> "16-10-2026 09:48 PM"
 const lineName = i => esc(i.item_name) + (i.variant_label ? ` (${esc(i.variant_label)})` : '');
 
 function bill(o, S, L) {
-  const items = o.items.map(i => `<div class="it"><span>${lineName(i)}${i.note ? `<br><span style="font-size:calc(11 * var(--f))">* ${esc(i.note)}</span>` : ''}</span><span class="q">${i.qty}</span><span class="a">${i.price * i.qty}</span></div>`).join('');
+  const items = o.items.map(i => `<div class="it"><span>${lineName(i)}</span><span class="q">${i.qty}</span><span class="a">${i.price * i.qty}</span></div>`).join('');
   return `<div class="slip${L.cls}">
     <div class="c shop">${esc(S.shop_name)}</div>
     <div class="c small">${esc(S.shop_tagline)}</div>
@@ -30,15 +30,13 @@ function bill(o, S, L) {
     <hr>
     ${chg(o, L)}
     ${row(L.orderNo, '#' + o.order_no, 'grand')}
-    ${row(L.kind, L.type[o.type] + (o.table_no ? ' - ' + esc(o.table_no) : ''))}
-    ${o.table_no ? row(L.tbl, '<b style="font-size:calc(20 * var(--f))">' + esc(o.table_no) + '</b>') : ''}
+    ${row(L.kind, L.type[o.type])}
     ${row(L.time, when(o.created_at))}
     ${o.customer_name ? row(L.name, esc(o.customer_name)) : ''}
     ${o.phone ? row(L.phone, esc(o.phone)) : ''}
     ${o.type === 'delivery' ? `<div class="row"><span>${L.addr}</span></div><div class="addr">${esc(o.address)}</div>` : ''}
     <hr>
     <div class="items"><div class="it h"><span>Item</span><span class="q">Qty</span><span class="a">Rs</span></div>${items}</div>
-    ${o.note ? `<div class="note" style="margin-top:4px">${L.onote}${esc(o.note)}</div>` : ''}
     <hr>
     ${row(L.sub, rs(o.subtotal))}
     ${o.discount ? row(L.disc, '- ' + rs(o.discount)) : ''}
@@ -57,7 +55,8 @@ function kitchen(o, L) {
   return `<div class="slip${L.cls}">
     ${chg(o, L)}<div class="c title">${L.kitchen}</div>
     <div class="c big">#${o.order_no}</div>
-    <div class="c" style="font-size:calc(20 * var(--f));font-weight:800">${L.type[o.type]}${o.table_no ? ' - ' + esc(o.table_no) : ''}</div>
+    <div class="c" style="font-size:calc(20 * var(--f));font-weight:800">${L.type[o.type]}</div>
+    ${o.table_no ? `<div class="c" style="font-size:calc(26 * var(--f));font-weight:800;border:2px solid #000;margin:2px 0">${L.tbl}: ${esc(o.table_no)}</div>` : ''}
     <div class="c small">${when(o.created_at)}</div>
     <hr>${items}
     ${o.note ? `<div class="note" style="margin-top:6px">${L.onote}${esc(o.note)}</div>` : ''}
