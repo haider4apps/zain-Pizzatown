@@ -89,6 +89,7 @@ const DEFAULTS = {
   service_charge_value: '5',
   paper_mm: '80',
   slip_margin_mm: '6',
+  slip_weight: 'thin',
   slip_top_mm: '0',
   slip_bottom_mm: '1',
   slip_font_scale: '130',         // slip ka size percent mein (100 = chhota, 200 = bohat bara)

@@ -10,7 +10,7 @@ const LANG = {
     tbl: 'Table / Token', extra: 'EXTRA: ', xtra: 'Extra', kitchen: 'KITCHEN SLIP', note: 'Note: ', onote: 'Order note: ', dslip: 'DELIVERY SLIP', rider: 'Rider', paid: 'PAID', nocollect: 'Do not collect cash',
     collect: 'COLLECT', gift: 'GIFT / FREE', cxl: 'Order #', cxl2: 'CANCELLED - new no.', delIncl: 'Delivery charges included: ', cls: ' en' },
 };
-const chg = (o, L) => o.replaces ? `<div class="c" style="border:3px solid #000;font-weight:800;font-size:calc(16 * var(--f));padding:3px;margin:4px 0">${L.cls ? L.cxl + o.replaces + ' ' + L.cxl2 + ' #' + o.order_no : L.cxl + ' ' + o.replaces + ' ' + L.cxl2 + ' ' + o.order_no}</div>` : '';
+const chg = (o, L) => o.replaces ? `<div class="c" style="border:3px solid #000;font-weight:var(--wh);font-size:calc(16 * var(--f));padding:3px;margin:4px 0">${L.cls ? L.cxl + o.replaces + ' ' + L.cxl2 + ' #' + o.order_no : L.cxl + ' ' + o.replaces + ' ' + L.cxl2 + ' ' + o.order_no}</div>` : '';
 const rs = n => 'Rs ' + Number(n || 0).toLocaleString('en-PK');
 const row = (label, val, cls = '') => `<div class="row ${cls}"><span>${label}</span><span class="v">${val}</span></div>`;
 function when(s) { // "YYYY-MM-DD HH:MM:SS" -> "16-10-2026 09:48 PM"
@@ -55,8 +55,8 @@ function kitchen(o, L) {
   return `<div class="slip${L.cls}">
     ${chg(o, L)}<div class="c title">${L.kitchen}</div>
     <div class="c big">#${o.order_no}</div>
-    <div class="c" style="font-size:calc(20 * var(--f));font-weight:800">${L.type[o.type]}</div>
-    ${o.table_no ? `<div class="c" style="font-size:calc(26 * var(--f));font-weight:800;border:2px solid #000;margin:2px 0">${L.tbl}: ${esc(o.table_no)}</div>` : ''}
+    <div class="c" style="font-size:calc(20 * var(--f));font-weight:var(--wh)">${L.type[o.type]}</div>
+    ${o.table_no ? `<div class="c" style="font-size:calc(26 * var(--f));font-weight:var(--wh);border:2px solid #000;margin:2px 0">${L.tbl}: ${esc(o.table_no)}</div>` : ''}
     <div class="c small">${when(o.created_at)}</div>
     <hr>${items}
     ${o.note ? `<div class="note" style="margin-top:6px">${L.onote}${esc(o.note)}</div>` : ''}
@@ -73,11 +73,11 @@ function delivery(o, L) {
     <hr>
     ${row(L.name, esc(o.customer_name) || '-')}
     ${row(L.phone, esc(o.phone) || '-')}
-    <div class="row"><span>${L.addr}</span></div><div class="addr" style="font-size:calc(16 * var(--f));font-weight:800">${esc(o.address)}</div>
+    <div class="row"><span>${L.addr}</span></div><div class="addr" style="font-size:calc(16 * var(--f));font-weight:var(--wh)">${esc(o.address)}</div>
     ${row(L.rider, esc(o.rider) || '-')}
     <hr>${items}<hr>
-    <div class="box">${paid ? `<div style="font-size:calc(22 * var(--f));font-weight:800">${L.paid} (${esc(o.payment)})</div><div class="small">${L.nocollect}</div>`
-      : `<div style="font-size:calc(16 * var(--f))">${L.collect}</div><div style="font-size:calc(30 * var(--f));font-weight:800;direction:ltr">${rs(o.total)}</div>`}</div>
+    <div class="box">${paid ? `<div style="font-size:calc(22 * var(--f));font-weight:var(--wh)">${L.paid} (${esc(o.payment)})</div><div class="small">${L.nocollect}</div>`
+      : `<div style="font-size:calc(16 * var(--f))">${L.collect}</div><div style="font-size:calc(30 * var(--f));font-weight:var(--wh);direction:ltr">${rs(o.total)}</div>`}</div>
     ${o.delivery_charge ? `<div class="c small">(${L.delIncl}${rs(o.delivery_charge)})</div>` : ''}
   </div>`;
 }
@@ -94,6 +94,8 @@ function delivery(o, L) {
     document.head.appendChild(st);
     const scale = Math.min(250, Math.max(50, parseInt(S.slip_font_scale) || 130)) / 100;
     document.documentElement.style.setProperty('--s', scale);
+    const wt = { thin: ['400', '600'], normal: ['600', '700'], bold: ['700', '800'] }[P.get('w') || S.slip_weight] || ['400', '600'];
+    document.documentElement.style.setProperty('--wb', wt[0]); document.documentElement.style.setProperty('--wh', wt[1]);
     const lang = ['ur', 'en'].includes(P.get('lang')) ? P.get('lang') : (['ur', 'en'].includes(o.slip_lang) ? o.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur'));
     const L = LANG[lang];
     let html = '';

@@ -160,6 +160,7 @@ const FIELDS = [
   ['service_charge_value', 'Service charge value', 'number'],
   ['Printing', null],
   ['paper_mm', 'Paper width', 'select', [['80', '80 mm'], ['58', '58 mm']]],
+  ['slip_weight', 'Slip ke likhai ki motai (ink phail rahi ho to Patla)', 'select', [['thin', 'Patla (default)'], ['normal', 'Darmiyana'], ['bold', 'Mota (purana)']]],
   ['slip_top_mm', 'Slip ke OPAR ki khali jagah (mm, 0 = bilkul nahi)', 'number'],
   ['slip_bottom_mm', 'Slip ke NICHAY ki khali jagah (mm, kam karna ho to 0-1)', 'number'],
   ['slip_margin_mm', 'Slip margin (har side, mm) - slip kate to barhayen', 'number'],
