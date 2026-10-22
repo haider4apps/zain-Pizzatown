@@ -394,6 +394,7 @@ function insertOrder(b, calc, S, replaces) {
   lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras, l.ep));
   const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
   db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
+  if (b.no_print) db.prepare('update orders set printed=1 where id=?').run(oid);   // is order ki slip nahi nikalni
   if (sync) enqueueOrder(loadOrder(oid), false);
   return oid;
 }
@@ -443,6 +444,8 @@ app.get('/api/orders/recent', (req, res) =>
     where business_date=? order by id desc limit 50`).all(businessDate()).map(o => ({ ...o, edit_left: editLeft(o) }))));
 
 // Printer-station PC yahan se naye (na-print hue) orders poochta hai
+// Printer ON karte waqt: jama hue purane orders na nikalein
+app.post('/api/print/skip-old', (req, res) => { db.prepare('update orders set printed=1 where printed=0').run(); res.json({ ok: true }); });
 app.get('/api/print/pending', (req, res) => {
   const since = fmtDT(new Date(Date.now() - 2 * 3600e3));
   res.json(db.prepare("select id from orders where printed=0 and status='done' and print_at>=? order by id").all(since).map(r => r.id));

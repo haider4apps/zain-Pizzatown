@@ -206,6 +206,7 @@ function renderCheckout() {
   ${co.payment === 'Gift' ? `<div class="f"><label>Gift kis ki taraf se?</label><select id="f_gby">${['Owner', 'Partner 1', 'Partner 2', 'Staff', 'Customer'].map(p => `<option ${co.gift_by === p ? 'selected' : ''}>${p}</option>`).join('')}</select></div>` : ''}
   <div class="f"><label>Order note (optional)</label><input id="f_note" value="${esc(co.note)}"></div>
   <div class="f"><label>Slip ki zaban</label><div class="seg two-seg" id="langSeg"><button data-l="ur" class="${co.slip_lang === 'ur' ? 'on' : ''}">اردو</button><button data-l="en" class="${co.slip_lang === 'en' ? 'on' : ''}">English</button></div></div>
+  <label class="chk"><input type="checkbox" id="f_np" ${co.no_print ? 'checked' : ''}> Is order ki slip na nikalein (sirf save karein)</label>
   <div class="sum" id="sum"></div>
   <div class="two"><button class="btn" id="coCancel">Back</button><button class="btn gold" id="coOk">${editing ? 'Save change &amp; Print' : 'Save &amp; Print'}</button></div>`;
   sh.querySelectorAll('#typeSeg button').forEach(b => b.onclick = () => { readForm(); co.type = b.dataset.t; renderCheckout(); });
@@ -222,9 +223,11 @@ function readForm() {
   set('table_no', 'f_table'); set('customer_name', 'f_name'); set('phone', 'f_phone'); set('address', 'f_addr');
   set('rider', 'f_rider'); set('discount', 'f_disc'); set('delivery_charge', 'f_del'); set('payment', 'f_pay'); set('note', 'f_note'); set('gift_by', 'f_gby');
   const s = $('#f_svc'); if (s) co.service = s.checked;
+  const np = $('#f_np'); if (np) co.no_print = np.checked;
 }
 function updSum() {
   const c = calc();
+  const ok = $('#coOk'); if (ok) ok.innerHTML = (editing ? 'Save change' : 'Save') + (co.no_print ? ' (bina print)' : ' &amp; Print');
   $('#sum').innerHTML = `<div><span>Subtotal</span><span>${money(c.sub)}</span></div>` +
     (c.disc ? `<div><span>Discount</span><span>- ${money(c.disc)}</span></div>` : '') +
     (c.del ? `<div><span>Delivery</span><span>${money(c.del)}</span></div>` : '') +
@@ -248,7 +251,7 @@ async function placeOrder() {
     const o = await api(editing ? '/api/orders/' + editing.id : '/api/orders', { method: editing ? 'PUT' : 'POST', headers: (giftPin || (editing && editing.pin)) ? { 'x-admin-pin': giftPin || editing.pin } : undefined, body: {
       type: co.type, table_no: co.table_no, customer_name: co.customer_name, phone: co.phone, address: co.address,
       rider: co.rider, discount: +co.discount || 0, delivery_charge: +co.delivery_charge || 0, service: co.service,
-      payment: co.payment, gift_by: co.gift_by, note: co.note, slip_lang: co.slip_lang,
+      payment: co.payment, gift_by: co.gift_by, note: co.note, slip_lang: co.slip_lang, no_print: !!co.no_print,
       items: cart.map(l => l.keep ? { keep: l.keep, qty: l.qty, note: l.note, extras: l.extras, extras_price: l.extras_price || 0 } : { variant_id: l.variant_id, qty: l.qty, note: l.note, extras: l.extras, extras_price: l.extras_price || 0 }) } });
     const wasEdit = editing ? editing.order_no : 0;
     cart = []; co = null; editing = null;
@@ -422,7 +425,11 @@ $('#checkoutBtn').onclick = openCheckout;
 $('#clearCart').onclick = () => { if (cart.length && confirm('Cart khali kar dein?')) { cart = []; editing = null; co = null; renderCart(); } };
 $('#btnOrders').onclick = openOrders;
 $('#btnVoice').onclick = openVoice;
-$('#btnStation').onclick = () => { localStorage.setItem('station', isStation() ? '0' : '1'); updStation(); if (isStation()) toast('Is device se ab slips print hongi'); };
+$('#btnStation').onclick = async () => {
+  const turnOn = !isStation();
+  if (turnOn) { try { await api('/api/print/skip-old', {}); } catch (e) {} }   // purane jama orders ab nahi nikalenge
+  localStorage.setItem('station', turnOn ? '1' : '0'); updStation();
+  if (turnOn) toast('Printer ON: ab sirf naye orders ki slips nikalen gi'); };
 $('#cartbar').onclick = () => $('#cart').classList.add('open');
 $('#closeCart').onclick = () => $('#cart').classList.remove('open');
 [$('#coModal'), $('#ordModal')].forEach(m => m.addEventListener('click', e => { if (e.target === m) m.classList.remove('on'); }));
