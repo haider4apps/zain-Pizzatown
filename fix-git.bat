@@ -1,6 +1,7 @@
 @echo off
 cd /d "%~dp0"
 set "PATH=%PATH%;%ProgramFiles%\Git\cmd"
+git config --global --add safe.directory "*"
 git config remote.origin.fetch "+refs/heads/*:refs/remotes/origin/*"
 git config core.autocrlf false
 git fetch origin

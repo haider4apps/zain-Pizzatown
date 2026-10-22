@@ -297,6 +297,7 @@ setInterval(dailyBackup, 6 * 3600e3);
 
 // ---------- git helpers (Software update) ----------
 function run(cmd, args, opts = {}) {
+  if (cmd === 'git') args = ['-c', 'safe.directory=*', ...args];   // "dubious ownership" error se bachne ke liye
   return new Promise((resolve, reject) => {
     execFile(cmd, args, { cwd: __dirname, timeout: 150000, windowsHide: true, ...opts }, (err, stdout, stderr) => {
       if (err) return reject(new Error(String(stderr || err.message).trim().slice(0, 400)));
