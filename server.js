@@ -596,25 +596,6 @@ admin.delete('/variants/:id', (req, res) => {
   res.json({ ok: true });
 });
 
-// Go-Live: test data saaf (menu/prices/settings wahi rehte hain). Pehle backup banta hai.
-admin.post('/golive-reset', async (req, res) => {
-  if ((req.body || {}).confirm !== 'RESET') return res.status(400).json({ error: 'Confirm word likhein' });
-  if (getSettings().golive_done) return res.status(403).json({ error: 'Go-Live pehle ho chuka hai aur lock hai. Unlock sirf developer kar sakta hai.' });
-  try {
-    fs.mkdirSync(BACKUPS, { recursive: true });
-    const file = path.join(BACKUPS, `before-golive-${fmtDT(new Date()).replace(/[: ]/g, '-')}.db`);
-    await db.backup(file);
-    db.transaction(() => {
-      ['order_items', 'orders', 'expenses', 'events', 'outbox'].forEach(t => db.prepare(`delete from ${t}`).run());
-      setSetting('sync_since', fmtDT(new Date()));
-      setSetting('last_sync_ok', ''); setSetting('last_sync_error', '');
-      setSetting('golive_done', fmtDT(new Date()));
-    })();
-    journal.marker();     // is se pehle ki journal rows ab dobara nahi bheji jayen gi
-    logEvent('setting', 'Go-Live: test data saaf kiya gaya');
-    res.json({ ok: true, backup: path.basename(file) });
-  } catch (e) { res.status(500).json({ error: e.message }); }
-});
 admin.post('/orders/:id/cancel', (req, res) => {
   const o = loadOrder(req.params.id);
   if (!o) return res.status(404).json({ error: 'Order nahi mila' });
