@@ -179,7 +179,8 @@ const FIELDS = [
 ];
 async function viewSettings() {
   const S = await A('/settings');
-  view.innerHTML = '<div class="box">' + FIELDS.map(([k, label, type, opts]) => {
+  const sheetSet = !!(S.sheet_url && S.sheet_key);   // juri hui ho to URL/key chhupa dein (galti se na chhidein)
+  view.innerHTML = '<div class="box">' + FIELDS.filter(([k, label]) => !(sheetSet && (k === 'sheet_url' || k === 'sheet_key' || String(k).startsWith('Google Sheet')))).map(([k, label, type, opts]) => {
     if (label === null) return `<b style="color:var(--gold);margin-top:8px">${k}</b>`;
     if (!type) return `<div class="f"><label>${label}</label><input data-s="${k}" value="${esc(S[k])}"></div>`;
     if (type === 'check') return `<label class="chk"><input type="checkbox" data-s="${k}" ${S[k] === '1' ? 'checked' : ''}> ${label}</label>`;
