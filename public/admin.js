@@ -24,37 +24,7 @@ async function login(pin) {
 $('#pinOk').onclick = () => login($('#pin').value);
 $('#pin').onkeydown = e => { if (e.key === 'Enter') login($('#pin').value); };
 $('#tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; tab = b.dataset.t; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b)); show(); };
-function show() { view.onchange = view.onclick = null; ({ menu: viewMenu, day: viewDay, sales: viewSales, exp: viewExpenses, set: viewSettings })[tab](); }
-
-// ---------- daily sale (auto-refresh) ----------
-let dayDate = '', dayTimer;
-async function viewDay() {
-  clearInterval(dayTimer);
-  const r = await A('/day' + (dayDate ? '?date=' + dayDate : ''));
-  dayDate = r.date;
-  const shift = n => { const d = new Date(r.date + 'T12:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
-  const typ = Object.entries(r.by_type).map(([k, v]) => `<div class="stat"><small>${TYPES[k] || k}</small><b>${v.n}</b><small>${money(v.total)}</small></div>`).join('');
-  const pay = Object.entries(r.by_payment).map(([k, v]) => `${k === 'Gift' ? 'Gift' : esc(k)}: ${v.n} (${money(v.total)})`).join(' &nbsp;·&nbsp; ');
-  const itx = o => o.items.map(i => `${esc(i.item_name)}${i.variant_label ? ' ' + esc(i.variant_label) : ''} ×${i.qty}${i.extras ? ' <small>(+ ' + esc(i.extras) + ')</small>' : ''}`).join(', ');
-  view.innerHTML = `
-  <div class="box"><div class="r"><button class="btn s" id="dPrev">◀</button><input type="date" id="dDate" value="${r.date}" style="flex:0 0 170px"><button class="btn s" id="dNext">▶</button>
-    <button class="btn s" id="dToday">Aaj</button><span style="color:var(--mute);font-size:13px;flex:1;text-align:right">Khud update hota hai (har 30 second)</span></div></div>
-  <div class="cards">
-    <div class="stat"><small>${r.date === r.now ? 'Aaj ki sale' : 'Is din ki sale'}</small><b>${money(r.total)}</b></div>
-    <div class="stat"><small>Orders</small><b>${r.n}</b>${r.cancelled ? `<small style="color:var(--red)">${r.cancelled} cancelled</small>` : ''}</div>
-    <div class="stat"><small>Average order</small><b>${money(r.avg)}</b></div>
-    <div class="stat"><small>Pehla / aakhri order</small><b style="font-size:18px">${r.first ? r.first + ' – ' + r.last : '-'}</b></div>${typ}</div>
-  ${pay ? `<div class="box" style="font-size:14px"><b>Payment</b>${pay}</div>` : ''}
-  <div class="box"><b>Order numbers</b><div class="chips">${r.orders.map(o => `<span class="${o.status === 'done' ? '' : 'x'}">#${o.order_no}</span>`).join('') || '<span style="border:0;color:var(--mute)">Is din koi order nahi</span>'}</div></div>
-  <div class="box"><b>Orders (naye upar)</b>${r.orders.slice().reverse().map(o => `
-    <div class="dayord ${o.status === 'done' ? '' : 'x'}"><div class="no">#${o.order_no}</div>
-      <div class="mid"><div class="its">${itx(o)}</div><small>${o.created_at.slice(11, 16)} · ${TYPES[o.type] || o.type}${o.customer_name || o.table_no ? ' · ' + esc(o.customer_name || 'Table ' + o.table_no) : ''}${o.payment === 'Gift' ? ' · Gift' : ''}${o.status !== 'done' ? ' · cancelled' : ''}</small></div>
-      <div class="amt">${money(o.total)}</div></div>`).join('')}</div>`;
-  const go = d => { dayDate = d; viewDay(); };
-  $('#dPrev').onclick = () => go(shift(-1)); $('#dNext').onclick = () => go(shift(1)); $('#dToday').onclick = () => go(r.now);
-  $('#dDate').onchange = e => go(e.target.value);
-  if (r.date === r.now) dayTimer = setInterval(() => { if (tab !== 'day') return clearInterval(dayTimer); viewDay().catch(() => {}); }, 30000);
-}
+function show() { view.onchange = view.onclick = null; ({ menu: viewMenu, sales: viewSales, exp: viewExpenses, set: viewSettings })[tab](); }
 
 // ---------- menu ----------
 async function viewMenu() {
@@ -112,13 +82,14 @@ async function viewMenu() {
 
 // ---------- sales ----------
 let from = '', to = '';
+const shiftDay = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
 async function viewSales() {
   const r = await A(`/report?from=${from}&to=${to}`);
   from = r.from; to = r.to;
   const t = r.totals;
   const tbl = (head, rows) => `<table><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(x => `<tr>${x.map(c => `<td>${c}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${head.length}" style="color:var(--mute)">—</td></tr>`}</table>`;
   view.innerHTML = `
-  <div class="box"><div class="r"><div class="f"><label>From</label><input type="date" id="dFrom" value="${from}"></div><div class="f"><label>To</label><input type="date" id="dTo" value="${to}"></div>
+  <div class="box"><div class="r"><button class="btn s" id="dPrev" title="Pichla din / pichli muddat">◀</button><div class="f"><label>From</label><input type="date" id="dFrom" value="${from}"></div><div class="f"><label>To</label><input type="date" id="dTo" value="${to}"></div><button class="btn s" id="dNext" title="Agla din / agli muddat">▶</button>
     <button class="btn gold s" id="go">Show</button>
     <button class="btn s" data-rng="0">Aaj</button><button class="btn s" data-rng="7">7 din</button><button class="btn s" data-rng="30">30 din</button></div></div>
   <div class="cards">
@@ -139,10 +110,13 @@ async function viewSales() {
     o.status === 'cancelled' ? '<s style="color:var(--red)">' + money(o.total) + '</s>' : money(o.total),
     `<button class="btn" data-act="pv" data-id="${o.id}">View</button> <button class="btn" data-act="rp" data-lang="ur" data-id="${o.id}">Reprint اردو</button> <button class="btn" data-act="rp" data-lang="en" data-id="${o.id}">Reprint EN</button> ` +
     (o.status === 'done' ? `<button class="btn red" data-act="cx" data-id="${o.id}">Cancel</button>` : '')]))}</div>`;
+  const span = Math.round((new Date(to + 'T12:00:00') - new Date(from + 'T12:00:00')) / 864e5) + 1;
+  $('#dPrev').onclick = () => { from = shiftDay(from, -span); to = shiftDay(to, -span); viewSales(); };
+  $('#dNext').onclick = () => { from = shiftDay(from, span); to = shiftDay(to, span); viewSales(); };
   $('#go').onclick = () => { from = $('#dFrom').value; to = $('#dTo').value || from; viewSales(); };
   view.onclick = e => guard(async () => {
     const rg = e.target.closest('[data-rng]');
-    if (rg) { const n = +rg.dataset.rng, d = new Date(to ? to + 'T12:00:00' : Date.now()); d.setDate(d.getDate() - (n ? n - 1 : 0)); const f = x => x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); from = n ? f(d) : to; viewSales(); return; }
+    if (rg) { const n = +rg.dataset.rng; to = r.now; from = shiftDay(r.now, n ? -(n - 1) : 0); viewSales(); return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const id = b.dataset.id;
     if (b.dataset.act === 'pv') window.open('/slip.html?preview=1&id=' + id, '_blank');
@@ -216,12 +190,9 @@ async function viewSettings() {
   <div class="box" id="syncBox" style="background:var(--panel2)">Sheet sync check ho raha hai...</div>
   <div class="box" id="updBox" style="background:var(--panel2)"><b style="color:var(--gold)">Software update (GitHub)</b><div id="updInfo">...</div>
     <div class="r"><button class="btn s" id="updCheck">Check for update</button><button class="btn gold s" id="updGo" style="display:none">Update karein</button></div></div>
-  <div class="box" style="background:var(--panel2)"><b style="color:var(--red)">Go-Live: test data saaf</b><div style="color:var(--mute);font-size:13px">Saray test orders, kharche aur log delete hon ge (pehle backup banta hai). Menu, prices aur settings wahi rahen ge. Sheet ke purane rows haath se delete karni hon gi. Ye sirf dukan mein asli kaam shuru karne se pehle dabayen.</div>
-    <div class="r"><button class="btn red s" id="goLive">Test data saaf karein</button></div></div>
   <div style="color:var(--mute);font-size:13px">Mobile se order lene ke liye PC aur mobile aik hi WiFi par hon, aur mobile ke browser mein PC ka address kholen (server ki black window mein "Mobile par:" ke aage likha hota hai).</div></div>`;
   guard(async () => {
     const y = await A('/sync');
-    if (y.golive_done) { const g = $('#goLive'); g.disabled = true; g.textContent = 'Go-Live ho chuka (' + y.golive_done.slice(0, 16) + ') - locked'; }
     $('#syncBox').innerHTML = !y.configured ? '<b>Google Sheet:</b> abhi link nahi (URL aur key daal kar Save karein).'
       : `<b>Google Sheet:</b> ${y.pending ? '⏳ ' + y.pending + ' records bhejne baqi' : '✓ sab bhej diya'}<br>Aakhri kamyab sync: ${y.last_ok || '-'}${y.last_error ? `<br><span style="color:var(--red)">Masla: ${esc(y.last_error)}</span>` : ''}
          <div class="r" style="margin-top:6px"><button class="btn s" id="syncNow">Abhi sync karein</button></div>`;
@@ -238,12 +209,6 @@ async function viewSettings() {
   $('#updGo').onclick = () => guard(async () => {
     if (!confirm('Update karein? Software 5 second ke liye band ho kar dobara chalega. Data safe rahta hai.')) return;
     const u = await A('/update', 'POST'); toast(u.message, 6000); $('#updInfo').textContent = u.message;
-  });
-  $('#goLive').onclick = () => guard(async () => {
-    const w = prompt('Saray orders/kharche/log delete ho jayen ge. Pakka? Confirm ke liye RESET likhein:');
-    if (w !== 'RESET') return toast('Cancel kiya, kuch delete nahi hua', 3000);
-    const x = await A('/golive-reset', 'POST', { confirm: 'RESET' });
-    toast('Saaf ho gaya. Backup: ' + x.backup, 6000); viewSettings();
   });
   $('#pvS').onclick = () => guard(async () => {
     const list = await (await fetch('/api/orders/recent')).json();
