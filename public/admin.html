@@ -27,6 +27,16 @@
   th{color:var(--mute);font-weight:600}
   .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
   .stat{background:var(--panel2);border-radius:12px;padding:12px}.stat small{color:var(--mute)}.stat b{display:block;font-size:22px;color:var(--gold)}
+  .dayord{background:var(--panel2);border-radius:12px;padding:10px 12px;display:flex;gap:12px;align-items:flex-start}
+  .dayord .no{font-size:20px;font-weight:800;color:var(--gold);min-width:52px}
+  .dayord .mid{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+  .dayord .mid small{color:var(--mute)}
+  .dayord .amt{font-weight:800;font-size:17px;white-space:nowrap}
+  .dayord .its{font-size:14px;line-height:1.4}
+  .dayord.x{opacity:.55}.dayord.x .amt{text-decoration:line-through;color:var(--red)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap}
+  .chips span{background:var(--panel2);border:1px solid var(--line);border-radius:8px;padding:3px 9px;font-size:13px;font-weight:700}
+  .chips span.x{text-decoration:line-through;color:var(--red)}
   select#catSel{max-width:360px}
   #login{max-width:340px;margin:80px auto}
 </style>
@@ -37,7 +47,7 @@
   <button class="btn gold" id="pinOk">Open</button><a href="/" style="color:var(--mute)">← POS par wapas</a></div>
 <div class="wrap" id="main" style="display:none">
   <div class="bar"><div class="logo">PIZZA TOWN · ADMIN</div><a class="btn" href="/" style="text-decoration:none">← POS</a></div>
-  <div class="tabs" id="tabs"><button data-t="menu" class="on">Menu &amp; Prices</button><button data-t="sales">Sales &amp; Profit</button><button data-t="exp">Kharcha</button><button data-t="set">Settings</button></div>
+  <div class="tabs" id="tabs"><button data-t="menu" class="on">Menu &amp; Prices</button><button data-t="day">Daily Sale</button><button data-t="sales">Sales &amp; Profit</button><button data-t="exp">Kharcha</button><button data-t="set">Settings</button></div>
   <div id="view"></div>
 </div>
 <div id="toast"></div>

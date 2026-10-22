@@ -24,7 +24,37 @@ async function login(pin) {
 $('#pinOk').onclick = () => login($('#pin').value);
 $('#pin').onkeydown = e => { if (e.key === 'Enter') login($('#pin').value); };
 $('#tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; tab = b.dataset.t; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b)); show(); };
-function show() { view.onchange = view.onclick = null; ({ menu: viewMenu, sales: viewSales, exp: viewExpenses, set: viewSettings })[tab](); }
+function show() { view.onchange = view.onclick = null; ({ menu: viewMenu, day: viewDay, sales: viewSales, exp: viewExpenses, set: viewSettings })[tab](); }
+
+// ---------- daily sale (auto-refresh) ----------
+let dayDate = '', dayTimer;
+async function viewDay() {
+  clearInterval(dayTimer);
+  const r = await A('/day' + (dayDate ? '?date=' + dayDate : ''));
+  dayDate = r.date;
+  const shift = n => { const d = new Date(r.date + 'T12:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+  const typ = Object.entries(r.by_type).map(([k, v]) => `<div class="stat"><small>${TYPES[k] || k}</small><b>${v.n}</b><small>${money(v.total)}</small></div>`).join('');
+  const pay = Object.entries(r.by_payment).map(([k, v]) => `${k === 'Gift' ? 'Gift' : esc(k)}: ${v.n} (${money(v.total)})`).join(' &nbsp;·&nbsp; ');
+  const itx = o => o.items.map(i => `${esc(i.item_name)}${i.variant_label ? ' ' + esc(i.variant_label) : ''} ×${i.qty}${i.extras ? ' <small>(+ ' + esc(i.extras) + ')</small>' : ''}`).join(', ');
+  view.innerHTML = `
+  <div class="box"><div class="r"><button class="btn s" id="dPrev">◀</button><input type="date" id="dDate" value="${r.date}" style="flex:0 0 170px"><button class="btn s" id="dNext">▶</button>
+    <button class="btn s" id="dToday">Aaj</button><span style="color:var(--mute);font-size:13px;flex:1;text-align:right">Khud update hota hai (har 30 second)</span></div></div>
+  <div class="cards">
+    <div class="stat"><small>${r.date === r.now ? 'Aaj ki sale' : 'Is din ki sale'}</small><b>${money(r.total)}</b></div>
+    <div class="stat"><small>Orders</small><b>${r.n}</b>${r.cancelled ? `<small style="color:var(--red)">${r.cancelled} cancelled</small>` : ''}</div>
+    <div class="stat"><small>Average order</small><b>${money(r.avg)}</b></div>
+    <div class="stat"><small>Pehla / aakhri order</small><b style="font-size:18px">${r.first ? r.first + ' – ' + r.last : '-'}</b></div>${typ}</div>
+  ${pay ? `<div class="box" style="font-size:14px"><b>Payment</b>${pay}</div>` : ''}
+  <div class="box"><b>Order numbers</b><div class="chips">${r.orders.map(o => `<span class="${o.status === 'done' ? '' : 'x'}">#${o.order_no}</span>`).join('') || '<span style="border:0;color:var(--mute)">Is din koi order nahi</span>'}</div></div>
+  <div class="box"><b>Orders (naye upar)</b>${r.orders.slice().reverse().map(o => `
+    <div class="dayord ${o.status === 'done' ? '' : 'x'}"><div class="no">#${o.order_no}</div>
+      <div class="mid"><div class="its">${itx(o)}</div><small>${o.created_at.slice(11, 16)} · ${TYPES[o.type] || o.type}${o.customer_name || o.table_no ? ' · ' + esc(o.customer_name || 'Table ' + o.table_no) : ''}${o.payment === 'Gift' ? ' · Gift' : ''}${o.status !== 'done' ? ' · cancelled' : ''}</small></div>
+      <div class="amt">${money(o.total)}</div></div>`).join('')}</div>`;
+  const go = d => { dayDate = d; viewDay(); };
+  $('#dPrev').onclick = () => go(shift(-1)); $('#dNext').onclick = () => go(shift(1)); $('#dToday').onclick = () => go(r.now);
+  $('#dDate').onchange = e => go(e.target.value);
+  if (r.date === r.now) dayTimer = setInterval(() => { if (tab !== 'day') return clearInterval(dayTimer); viewDay().catch(() => {}); }, 30000);
+}
 
 // ---------- menu ----------
 async function viewMenu() {

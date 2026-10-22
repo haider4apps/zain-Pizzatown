@@ -687,6 +687,21 @@ admin.get('/report', (req, res) => {
       from orders where business_date between ? and ? order by id desc limit 300`).all(...A),
   });
 });
+// Daily Sale: aik din ka hisab + us din ke orders (items aur rate ke saath)
+admin.get('/day', (req, res) => {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : businessDate();
+  const rows = db.prepare('select id,order_no,type,table_no,customer_name,rider,total,payment,gift_by,status,created_at from orders where business_date=? order by id').all(date);
+  const itemsQ = db.prepare('select item_name,variant_label,qty,price,extras,extras_price from order_items where order_id=? order by id');
+  const orders = rows.map(o => ({ ...o, items: itemsQ.all(o.id) }));
+  const done = orders.filter(o => o.status === 'done');
+  const sum = a => a.reduce((t, o) => t + o.total, 0);
+  const by = f => { const m = {}; done.forEach(o => { const k = f(o); m[k] = m[k] || { n: 0, total: 0 }; m[k].n++; m[k].total += o.total; }); return m; };
+  res.json({
+    date, now: businessDate(), n: done.length, total: sum(done), cancelled: orders.length - done.length,
+    avg: done.length ? Math.round(sum(done) / done.length) : 0, first: done[0] ? done[0].created_at.slice(11, 16) : '', last: done.length ? done[done.length - 1].created_at.slice(11, 16) : '',
+    by_type: by(o => o.type), by_payment: by(o => o.payment), orders,
+  });
+});
 admin.get('/events', (req, res) =>
   res.json(db.prepare('select ts,kind,detail from events order by id desc limit 200').all()));
 
