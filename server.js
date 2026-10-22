@@ -105,9 +105,10 @@ const DEFAULTS = {
   last_sync_error: '',            // (internal)
   golive_done: '',                // (internal) Go-Live aik hi baar
   last_alive: '',                 // (internal) POS aakhri baar kab chal raha tha
+  purge_fake_done: '',            // (internal) purane test orders aik baar saaf hue
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive']);
+const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done']);
+const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -727,6 +728,32 @@ function friendlyGitError(m) {
 
 app.use('/api/admin', admin);
 
+// Aik baar: 18 Oct 2026 se pehle ke test (fake) orders, kharche aur log saaf. Pehle backup banta hai.
+function purgeOldTestData() {
+  try {
+    if (getSettings().purge_fake_done) return;
+    const CUT = '2026-10-18', now = fmtDT(new Date());
+    const n = db.prepare('select count(*) n from orders where business_date<?').get(CUT).n
+      + db.prepare('select count(*) n from expenses where date<?').get(CUT).n + db.prepare('select count(*) n from events where ts<?').get(CUT).n;
+    if (n) {
+      fs.mkdirSync(BACKUPS, { recursive: true });
+      db.prepare('VACUUM INTO ?').run(path.join(BACKUPS, `before-purge-${now.replace(/[: ]/g, '-')}.db`));
+      db.transaction(() => {
+        // jo Sheet par nahi gaya wo bhi na jaye (journal dobara na bheje)
+        db.prepare("update outbox set synced_at=? where synced_at is null and kind in ('orders','items') and substr(uid,1,36) in (select uid from orders where business_date<?)").run(now, CUT);
+        db.prepare("update outbox set synced_at=? where synced_at is null and kind='expenses' and substr(uid,1,36) in (select uid from expenses where date<?)").run(now, CUT);
+        db.prepare("update outbox set synced_at=? where synced_at is null and kind='events' and uid in (select uid from events where ts<?)").run(now, CUT);
+        db.prepare('delete from order_items where order_id in (select id from orders where business_date<?)').run(CUT);
+        db.prepare('delete from orders where business_date<?').run(CUT);
+        db.prepare('delete from expenses where date<?').run(CUT);
+        db.prepare('delete from events where ts<?').run(CUT);
+      })();
+      logEvent('setting', `Purane test records saaf kiye gaye (${n}), backup bana liya gaya`);
+    }
+    setSetting('purge_fake_done', now);
+  } catch (e) { console.error('purge:', e.message); }
+}
+purgeOldTestData();
 startupCheck();
 const server = app.listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
