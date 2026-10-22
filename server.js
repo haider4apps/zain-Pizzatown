@@ -601,6 +601,7 @@ admin.post('/orders/:id/cancel', (req, res) => {
   const o = loadOrder(req.params.id);
   if (!o) return res.status(404).json({ error: 'Order nahi mila' });
   if (o.status === 'cancelled') return res.json({ ok: true });
+  if (editLeft(o) <= 0) return res.status(403).json({ error: `Cancel sirf order ke ${S_editMin()} minute tak ho sakta hai. Ab nahi ho sakta.` });
   db.transaction(() => {
     db.prepare("update orders set status='cancelled' where id=?").run(o.id);
     if (o.queued) enqueueOrder(o, true);   // Sheet mein ulti (negative) entry, purani row nahi badalti
@@ -669,7 +670,7 @@ admin.get('/report', (req, res) => {
       from order_items oi join orders o on o.id=oi.order_id where o.business_date between ? and ? and o.status='done'
       group by oi.item_name, oi.variant_label order by qty desc limit 15`).all(...A),
     orders: db.prepare(`select id,order_no,business_date,type,table_no,customer_name,rider,total,profit,payment,gift_by,status,printed,created_at
-      from orders where business_date between ? and ? order by id desc limit 300`).all(...A),
+      from orders where business_date between ? and ? order by id desc limit 300`).all(...A).map(o => ({ ...o, cancel_left: o.status === 'done' ? editLeft(o) : 0 })),
   });
 });
 admin.get('/events', (req, res) =>

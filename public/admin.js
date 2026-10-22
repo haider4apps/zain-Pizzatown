@@ -109,7 +109,7 @@ async function viewSales() {
     o.order_no, o.business_date, o.created_at.slice(11, 16), TYPES[o.type], esc(o.customer_name || o.table_no || o.rider || ''),
     o.status === 'cancelled' ? '<s style="color:var(--red)">' + money(o.total) + '</s>' : money(o.total),
     `<button class="btn" data-act="pv" data-id="${o.id}">View</button> <button class="btn" data-act="rp" data-lang="ur" data-id="${o.id}">Reprint اردو</button> <button class="btn" data-act="rp" data-lang="en" data-id="${o.id}">Reprint EN</button> ` +
-    (o.status === 'done' ? `<button class="btn red" data-act="cx" data-id="${o.id}">Cancel</button>` : '')]))}</div>`;
+    (o.status === 'done' && o.cancel_left > 0 ? `<button class="btn red" data-act="cx" data-id="${o.id}">Cancel</button>` : '')]))}</div>`;
   const span = Math.round((new Date(to + 'T12:00:00') - new Date(from + 'T12:00:00')) / 864e5) + 1;
   $('#dPrev').onclick = () => { from = shiftDay(from, -span); to = shiftDay(to, -span); viewSales(); };
   $('#dNext').onclick = () => { from = shiftDay(from, span); to = shiftDay(to, span); viewSales(); };
