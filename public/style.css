@@ -11,7 +11,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--gold)}
 .btn:disabled{opacity:.45;cursor:not-allowed}
 
 /* layout */
-#app{display:grid;height:100%;grid-template-columns:200px 1fr 360px;grid-template-rows:56px 1fr;grid-template-areas:"top top top" "tabs menu cart"}
+#app{display:grid;height:100%;grid-template-columns:200px 1fr 360px;grid-template-rows:56px auto 1fr;grid-template-areas:"top top top" "bar bar bar" "tabs menu cart"}
 .top{grid-area:top;display:flex;align-items:center;gap:10px;padding:0 14px;background:var(--panel);border-bottom:1px solid var(--line)}
 .logo{font-weight:800;letter-spacing:2px;color:var(--gold);font-size:20px;white-space:nowrap}
 .top .search{flex:1;max-width:420px}
@@ -79,7 +79,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--gold)}
 
 /* mobile */
 @media (max-width:900px){
- #app{grid-template-columns:1fr;grid-template-rows:56px auto 1fr;grid-template-areas:"top" "tabs" "menu"}
+ #app{grid-template-columns:1fr;grid-template-rows:56px auto auto 1fr;grid-template-areas:"top" "bar" "tabs" "menu"}
  .top .search{max-width:none}.logo{font-size:16px}.top .hide-m{display:none}
  #tabs{flex-direction:row;overflow-x:auto;overflow-y:hidden;border-right:0;border-bottom:1px solid var(--line);padding:8px;gap:8px}
  #tabs button{white-space:nowrap;padding:10px 14px;flex:0 0 auto}
@@ -125,3 +125,13 @@ a.btn{color:inherit}
 .syncpill.ok{background:#16351f;color:#6fe08a}
 .syncpill.wait{background:#3a2e10;color:#f5c04a}
 .syncpill.bad{background:#3d1717;color:#ff8a80}
+
+/* stock alerts */
+.stockbar{grid-area:bar;background:#3d1717;color:#ffb4a8;padding:7px 14px;font-weight:700;font-size:14px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-bottom:1px solid #6b2a2a}
+.stockbar[hidden]{display:none}
+.stockbar em{font-style:normal;border-radius:99px;padding:2px 10px;background:#5a2020;color:#ffb4a8}
+.stockbar em.low{background:#4a3a14;color:#f5c04a}
+.stockbar a{margin-left:auto;font-weight:400;color:#d9a79f}
+.chip{position:relative}
+.chip .stb{display:block;font-size:11px;font-weight:800;margin-top:2px;color:#f5c04a}
+.chip.stout{opacity:.7;border-color:#8a3a3a}.chip.stout .stb{color:#ffb4a8}

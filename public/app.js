@@ -26,10 +26,35 @@ let editing = null; // { id, order_no, pin } jab purana order badla ja raha ho
 const GRPCOL = ['#f08a4b', '#5fb3e8', '#b88cf0', '#7bd88f', '#f06292', '#e8b94c'];
 const PALETTE = ['#f5c542', '#ef5350', '#ff9800', '#26a69a', '#8bc34a', '#ba68c8', '#42a5f5', '#26c6da', '#f06292', '#a1887f'];
 const catColor = id => { const i = menu.findIndex(c => c.id === id); return PALETTE[(i < 0 ? 0 : i) % PALETTE.length]; };
+// ---------------- stock alerts ----------------
+let STOCK = { alerts: [], variants: {} };
+async function loadStock() {
+  try { STOCK = await api('/api/stock/alerts'); } catch (e) { return; }
+  const bar = $('#stockBar');
+  if (bar) {
+    const al = STOCK.alerts;
+    bar.hidden = !al.length;
+    bar.innerHTML = al.length ? '<span>⚠ Saman kam hai:</span>' + al.map(s => `<em class="${s.status}">${esc(s.name)}: ${s.status === 'out' ? 'khatam' : 'sirf ' + s.bal + ' ' + esc(s.unit) + (s.days !== null && s.days <= 3 ? ' (~' + Math.max(0, Math.floor(s.days)) + ' din)' : '')}</em>`).join('') + '<a href="/admin.html#stock">Stock dekhein ›</a>' : '';
+  }
+  if (typeof renderMenu === 'function' && menu && menu.length) renderMenu();
+}
+function stockConfirm(item, v, s, ok) {
+  const m = document.createElement('div'); m.className = 'modal on';
+  m.innerHTML = `<div class="sheet" style="max-width:440px"><h3 style="color:#ffb4a8">⚠ Stock khatam hai</h3>
+    <div style="font-size:16px;line-height:1.5"><b>${esc(item.name)}${v.label ? ' ' + esc(v.label) : ''}</b> ke liye <b>${esc(s.name)}</b> khatam nazar aa raha hai (bacha: ${s.bal} ${esc(s.unit)}).<br>Phir bhi order mein daalna hai?</div>
+    <div style="color:var(--mute);font-size:13px">Shayad stock ki entry baqi ho. Order dene se kuch rukta nahi, bas pata rahe.</div>
+    <div class="two"><button class="btn" id="scNo">Nahi, wapas</button><button class="btn gold" id="scYes">Haan, phir bhi daalein</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector('#scNo').onclick = () => m.remove();
+  m.onclick = e => { if (e.target === m) m.remove(); };
+  m.querySelector('#scYes').onclick = () => { m.remove(); ok(); fetch('/api/stock/override', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `${item.name} ${v.label || ''} (${s.name} khatam)` }) }).catch(() => {}); };
+}
+setInterval(loadStock, 60000);
 async function load() {
   [menu, settings] = await Promise.all([api('/api/menu'), api('/api/settings')]);
   if (!menu.find(c => c.id === cur)) cur = menu.length ? menu[0].id : null;
   renderTabs(); renderMenu(); renderCart();
+  loadStock();
 }
 // ---------------- section icons (ek rang ki line drawings) ----------------
 const ICONS = {
@@ -111,7 +136,14 @@ function renderMenu() {
     i.variants.forEach(v => {
       const b = el('button', 'chip' + (v.price > 0 ? '' : ' na'),
         (v.label ? `<small>${esc(v.label)}</small>` : '') + (v.price > 0 ? `<b>${v.price}</b>` : 'price?'));
-      b.onclick = () => { if (v.price > 0) { addToCart(i, v); b.classList.remove('hit'); card.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); card.classList.add('hit'); } else toast('Is ki price set nahi. Admin se price daalein.'); };
+      const sv = STOCK.variants[v.id];
+      if (sv) { b.classList.add(sv.status === 'out' ? 'stout' : 'stlow'); b.insertAdjacentHTML('beforeend', `<span class="stb">${sv.status === 'out' ? 'khatam' : sv.days !== null && sv.days <= 2 ? '~' + Math.max(0, Math.floor(sv.days)) + ' din' : 'kam hai'}</span>`); }
+      const add = () => { addToCart(i, v); b.classList.remove('hit'); card.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); card.classList.add('hit'); };
+      b.onclick = () => {
+        if (!(v.price > 0)) return toast('Is ki price set nahi. Admin se price daalein.');
+        const s = STOCK.variants[v.id];
+        if (s && s.status === 'out') stockConfirm(i, v, s, add); else add();
+      };
       chips.appendChild(b);
     });
     card.appendChild(chips); (gbox || box).appendChild(card);

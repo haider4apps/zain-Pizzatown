@@ -50,6 +50,7 @@ function addCol(table, col, def) {
 }
 addCol('variants', 'cost', 'integer default 0');
 addCol('order_items', 'cost', 'integer default 0');
+addCol('order_items', 'variant_id', 'integer');
 addCol('orders', 'uid', 'text');
 addCol('orders', 'replaces', 'integer');
 addCol('orders', 'gift_by', 'text');
@@ -68,6 +69,16 @@ create table if not exists outbox(
   id integer primary key, kind text, uid text, payload text, created_at text, synced_at text,
   attempts integer default 0, last_error text);
 create index if not exists idx_outbox_pending on outbox(synced_at);
+create table if not exists stock_items(
+  id integer primary key, name text not null, unit text default 'piece', min_level real default 0,
+  active integer default 1, created_at text);
+create table if not exists stock_moves(
+  id integer primary key, item_id integer not null, qty real not null, kind text not null,
+  ref integer, expense_id integer, date text, note text default '', created_at text);
+create table if not exists recipes(
+  variant_id integer not null, item_id integer not null, qty real not null, primary key(variant_id,item_id));
+create index if not exists idx_moves_item on stock_moves(item_id);
+create index if not exists idx_moves_ref on stock_moves(ref);
 `);
 const uuid = () => crypto.randomUUID();
 db.prepare('select id from orders where uid is null').all().forEach(r => db.prepare('update orders set uid=? where id=?').run(uuid(), r.id));
@@ -320,6 +331,53 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
+
+// ---------- stock ----------
+const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
+const r2 = n => Math.round(n * 100) / 100;
+function stockOut(orderId, lines, bd) {
+  const rec = db.prepare('select item_id,qty from recipes where variant_id=?');
+  const ins = db.prepare("insert into stock_moves(item_id,qty,kind,ref,date,created_at) values(?,?,'out',?,?,?)");
+  const now = fmtDT(new Date()), tot = {};
+  lines.forEach(l => { if (l.vid) rec.all(l.vid).forEach(r => { tot[r.item_id] = (tot[r.item_id] || 0) + r.qty * l.qty; }); });
+  Object.entries(tot).forEach(([id, q]) => ins.run(id, -q, orderId, bd, now));
+}
+// balance = aaya/ginti + (becha hua, sirf 'done' orders; cancel/edit ki hui sale wapas ho jati hai)
+const BAL_SQL = `coalesce(sum(case when m.kind='out' then (case when o.status='done' then m.qty else 0 end) else m.qty end),0)`;
+function stockList() {
+  const bd = businessDate();
+  const d = new Date(bd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 6);
+  const since = d.toISOString().slice(0, 10);
+  const items = db.prepare('select * from stock_items where active=1 order by name').all();
+  const bal = Object.fromEntries(db.prepare(`select m.item_id id, ${BAL_SQL} b from stock_moves m left join orders o on o.id=m.ref and m.kind='out' group by m.item_id`).all().map(r => [r.id, r.b]));
+  const use = Object.fromEntries(db.prepare(`select m.item_id id, -sum(m.qty) u from stock_moves m join orders o on o.id=m.ref where m.kind='out' and o.status='done' and m.date>=? group by m.item_id`).all(since).map(r => [r.id, r.u]));
+  return items.map(i => {
+    const b = r2(bal[i.id] || 0), perDay = r2((use[i.id] || 0) / 7);
+    const days = perDay > 0 ? r2(b / perDay) : null;
+    let status = 'ok';
+    if (b <= 0) status = 'out';
+    else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= 2)) status = 'low';
+    return { id: i.id, name: i.name, unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status };
+  });
+}
+app.get('/api/stock/alerts', (req, res) => {
+  try {
+    const list = stockList(), by = Object.fromEntries(list.map(i => [i.id, i]));
+    const alerts = list.filter(i => i.status !== 'ok').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1));
+    const variants = {};
+    db.prepare('select variant_id v, item_id i from recipes').all().forEach(r => {
+      const it = by[r.i]; if (!it || it.status === 'ok') return;
+      const cur = variants[r.v];
+      if (!cur || (it.status === 'out' && cur.status !== 'out')) variants[r.v] = { status: it.status, name: it.name, bal: it.bal, unit: it.unit, days: it.days };
+    });
+    res.json({ alerts, variants });
+  } catch (e) { res.json({ alerts: [], variants: {} }); }
+});
+app.post('/api/stock/override', (req, res) => {
+  logEvent('stock', `Khatam stock par bhi order liya: ${String((req.body || {}).name || '').slice(0, 120)}`);
+  res.json({ ok: true });
+});
+
 app.get('/api/menu', (req, res) => res.json(fullMenu(false)));
 // POS header ke liye (admin PIN ke baghair, sirf ginti)
 app.get('/api/sync/pending', (req, res) => {
@@ -352,13 +410,13 @@ function calcOrder(b, S, keepItems) {
     if (it.keep && keepItems) {
       const k = keepItems.find(x => x.id === int(it.keep));
       if (!k) return { err: 'Purani line nahi mili' };
-      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note, extras, ep });
+      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note, extras, ep, vid: k.variant_id || null });
       continue;
     }
     const v = getV.get(it.variant_id);
     if (!v) return { err: 'Item menu mein nahi mila' };
     if (v.price <= 0) return { err: `${v.name} ${v.label} ki price set nahi hai (Admin se price daalein)` };
-    lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note, extras, ep });
+    lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note, extras, ep, vid: v.id });
   }
   const subtotal = lines.reduce((s, l) => s + l.price * l.qty + l.ep, 0);
   const cost = lines.reduce((s, l) => s + l.cost * l.qty, 0);
@@ -391,8 +449,9 @@ function insertOrder(b, calc, S, replaces) {
     subtotal, discount, delivery, service, total, cost, profit,
     calc.gift ? 'Gift' : (['Cash', 'Online', 'Card'].includes(b.payment) ? b.payment : 'Cash'),
     String(b.note || '').slice(0, 300), fmtDT(now), fmtDT(now), sync ? 1 : 0, replaces || null, calc.gift ? calc.gift_by : null).lastInsertRowid;
-  const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price) values(?,?,?,?,?,?,?,?,?,?)');
-  lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras, l.ep));
+  const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price,variant_id) values(?,?,?,?,?,?,?,?,?,?,?)');
+  lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras, l.ep, l.vid || null));
+  try { stockOut(oid, lines, bd); } catch (e) { console.error('stock', e.message); }
   const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
   db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
   if (b.no_print) db.prepare('update orders set printed=1 where id=?').run(oid);   // is order ki slip nahi nikalni
@@ -611,6 +670,79 @@ admin.post('/orders/:id/cancel', (req, res) => {
   res.json({ ok: true });
 });
 
+
+// ----- stock (admin) -----
+admin.get('/stock', (req, res) => {
+  const list = stockList();
+  const moves = db.prepare(`select m.id,m.item_id,i.name,i.unit,m.qty,m.kind,m.date,m.note from stock_moves m join stock_items i on i.id=m.item_id where m.kind!='out' order by m.id desc limit 20`).all();
+  res.json({ items: list, moves });
+});
+admin.post('/stock/items', (req, res) => {
+  const b = req.body || {}, name = String(b.name || '').trim().slice(0, 60);
+  if (!name) return res.status(400).json({ error: 'Naam likhein' });
+  const ex = db.prepare('select id from stock_items where active=1 and lower(name)=lower(?)').get(name);
+  if (ex) return res.status(400).json({ error: 'Ye item pehle se hai' });
+  const unit = String(b.unit || 'piece').slice(0, 12), now = fmtDT(new Date());
+  const id = db.prepare('insert into stock_items(name,unit,min_level,created_at) values(?,?,?,?)').run(name, unit, Math.max(0, num(b.min_level)), now).lastInsertRowid;
+  const open = num(b.opening);
+  if (open > 0) db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'adjust',?,'Shuru ka stock',?)").run(id, open, businessDate(), now);
+  res.json({ id });
+});
+admin.put('/stock/items/:id', (req, res) => {
+  const b = req.body || {};
+  if (b.min_level !== undefined) db.prepare('update stock_items set min_level=? where id=?').run(Math.max(0, num(b.min_level)), req.params.id);
+  if (b.unit) db.prepare('update stock_items set unit=? where id=?').run(String(b.unit).slice(0, 12), req.params.id);
+  res.json({ ok: true });
+});
+admin.delete('/stock/items/:id', (req, res) => {
+  db.prepare('update stock_items set active=0 where id=?').run(req.params.id);
+  db.prepare('delete from recipes where item_id=?').run(req.params.id);
+  res.json({ ok: true });
+});
+// Aaya hua saman. amount ho to Kharcha mein bhi likha jata hai (dono jagah se same cheez)
+admin.post('/stock/in', (req, res) => {
+  const b = req.body || {}, it = db.prepare('select * from stock_items where id=? and active=1').get(b.item_id);
+  if (!it) return res.status(400).json({ error: 'Item chunein' });
+  const qty = num(b.qty); if (qty <= 0) return res.status(400).json({ error: 'Miqdar likhein' });
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : businessDate(), now = fmtDT(new Date());
+  const amount = int(b.amount);
+  db.transaction(() => {
+    let eid = null;
+    if (amount > 0) {
+      const uidv = uuid(), sync = syncOn(), note = String(b.note || '').trim() || `${it.name} ${qty} ${it.unit}`;
+      eid = db.prepare('insert into expenses(uid,date,category,note,amount,queued,created_at) values(?,?,?,?,?,?,?)').run(uidv, date, 'Saman (stock)', note.slice(0, 200), amount, sync ? 1 : 0, now).lastInsertRowid;
+      if (sync) enqueue('expenses', uidv, [uidv, date, 'Saman (stock)', note.slice(0, 200), amount, now]);
+      logEvent('expense', `${date} Saman (stock): Rs ${amount} (${note})`);
+    }
+    db.prepare("insert into stock_moves(item_id,qty,kind,expense_id,date,note,created_at) values(?,?,'in',?,?,?,?)").run(it.id, qty, eid, date, amount > 0 ? `Rs ${amount}` : '', now);
+  })();
+  syncSoon();
+  res.json({ ok: true });
+});
+// Ginti: asal bacha hua likhein, farq khud adjust ho jata hai
+admin.post('/stock/count', (req, res) => {
+  const b = req.body || {}, it = db.prepare('select * from stock_items where id=? and active=1').get(b.item_id);
+  if (!it) return res.status(400).json({ error: 'Item chunein' });
+  if (b.count === '' || b.count == null || num(b.count) < 0) return res.status(400).json({ error: 'Bacha hua likhein' });
+  const cur = stockList().find(x => x.id === it.id).bal, diff = r2(num(b.count) - cur);
+  if (diff !== 0) db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'adjust',?,?,?)").run(it.id, diff, businessDate(), `Ginti: ${cur} -> ${num(b.count)}`, fmtDT(new Date()));
+  res.json({ ok: true });
+});
+admin.get('/recipes', (req, res) => {
+  const vs = db.prepare(`select v.id,v.label,i.name from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.active=1 and i.active=1 order by c.sort,c.id,i.sort,i.id,v.sort,v.id`).all();
+  const rec = db.prepare('select r.variant_id v,r.item_id i,r.qty q from recipes r').all();
+  res.json({ variants: vs.map(v => ({ ...v, recipe: rec.filter(r => r.v === v.id).map(r => ({ item_id: r.i, qty: r.q })) })) });
+});
+admin.put('/recipes/:vid', (req, res) => {
+  const rows = (Array.isArray((req.body || {}).rows) ? req.body.rows : []).filter(r => r.item_id && num(r.qty) > 0);
+  db.transaction(() => {
+    db.prepare('delete from recipes where variant_id=?').run(req.params.vid);
+    const ins = db.prepare('insert or replace into recipes(variant_id,item_id,qty) values(?,?,?)');
+    rows.forEach(r => ins.run(req.params.vid, r.item_id, num(r.qty)));
+  })();
+  res.json({ ok: true });
+});
+
 // ----- expenses -----
 admin.get('/expenses', (req, res) => {
   const from = req.query.from || businessDate(), to = req.query.to || from;
@@ -634,6 +766,7 @@ admin.delete('/expenses/:id', (req, res) => {
   const e = db.prepare('select * from expenses where id=? and deleted=0').get(req.params.id);
   if (!e) return res.json({ ok: true });
   db.prepare('update expenses set deleted=1 where id=?').run(e.id);
+  db.prepare('delete from stock_moves where expense_id=?').run(e.id);
   if (e.queued) enqueue('expenses', e.uid + ':X', [e.uid + ':X', e.date, e.category, (e.note || '') + ' (deleted)', -e.amount, fmtDT(new Date())]);
   logEvent('expense', `Kharcha delete: ${e.date} ${e.category} Rs ${e.amount}`);
   syncSoon();

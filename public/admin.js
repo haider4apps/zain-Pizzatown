@@ -2,7 +2,7 @@ const $ = s => document.querySelector(s);
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const money = n => 'Rs ' + Number(n || 0).toLocaleString('en-PK');
 const TYPES = { dinein: 'Dine-in', takeaway: 'Takeaway', delivery: 'Delivery' };
-let PIN = sessionStorage.getItem('pin') || '', catId = null, tab = 'menu';
+let PIN = sessionStorage.getItem('pin') || '', catId = null, tab = location.hash === '#stock' ? 'stock' : 'menu';
 const view = $('#view');
 
 let toastT;
@@ -24,7 +24,7 @@ async function login(pin) {
 $('#pinOk').onclick = () => login($('#pin').value);
 $('#pin').onkeydown = e => { if (e.key === 'Enter') login($('#pin').value); };
 $('#tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; tab = b.dataset.t; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b)); show(); };
-function show() { view.onchange = view.onclick = null; ({ menu: viewMenu, sales: viewSales, exp: viewExpenses, set: viewSettings })[tab](); }
+function show() { document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x.dataset.t === tab)); view.onchange = view.onclick = null; ({ menu: viewMenu, sales: viewSales, exp: viewExpenses, stock: viewStock, set: viewSettings })[tab](); }
 
 // ---------- menu ----------
 async function viewMenu() {
@@ -132,20 +132,82 @@ async function viewExpenses() {
   const day = window._expDay || r.from;
   const month = day.slice(0, 7);
   const list = await A(`/expenses?from=${month}-01&to=${month}-31`);
+  const st = (await A('/stock')).items;
   const sum = list.reduce((s, x) => s + x.amount, 0);
   view.innerHTML = `<div class="box"><b style="color:var(--gold)">Kharcha likhein</b>
     <div class="r"><input type="date" id="eDate" value="${day}"><select id="eCat">${EXP_CATS.map(c => `<option>${c}</option>`).join('')}</select>
-      <input id="eNote" placeholder="Note (optional)"><input id="eAmt" type="number" min="1" placeholder="Rs"><button class="btn gold s" id="eAdd">+ Add</button></div></div>
+      <input id="eNote" placeholder="Note (optional)"><input id="eAmt" type="number" min="1" placeholder="Rs"><button class="btn gold s" id="eAdd">+ Add</button></div>
+    <div class="r"><select id="eStock"><option value="">Stock item (agar saman khareeda to chunein)</option>${st.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('')}</select><input id="eQty" type="number" step="any" min="0" placeholder="Kitna aaya"></div></div>
     <div class="box"><b>${month} ka kharcha: ${money(sum)}</b><table><tr><th>Date</th><th>Category</th><th>Note</th><th>Rs</th><th></th></tr>
     ${list.map(x => `<tr><td>${x.date}</td><td>${esc(x.category)}</td><td>${esc(x.note)}</td><td>${money(x.amount)}</td><td><button class="btn red" data-act="dx" data-id="${x.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--mute)">—</td></tr>'}</table></div>`;
   $('#eDate').onchange = e => { window._expDay = e.target.value; viewExpenses(); };
   $('#eAdd').onclick = () => guard(async () => {
+    if ($('#eStock').value) {
+      await A('/stock/in', 'POST', { item_id: $('#eStock').value, qty: $('#eQty').value, amount: $('#eAmt').value, date: $('#eDate').value, note: $('#eNote').value });
+      toast('Kharcha + stock likh liya ✓'); viewExpenses(); return;
+    }
     await A('/expenses', 'POST', { date: $('#eDate').value, category: $('#eCat').value, note: $('#eNote').value, amount: $('#eAmt').value });
     toast('Kharcha likh liya ✓'); viewExpenses();
   });
   view.onclick = e => guard(async () => {
     const b = e.target.closest('[data-act="dx"]'); if (!b) return;
     if (confirm('Ye kharcha delete karein?')) { await A('/expenses/' + b.dataset.id, 'DELETE'); viewExpenses(); }
+  });
+}
+
+
+// ---------- stock ----------
+const UNITS = ['kg', 'gram', 'litre', 'piece', 'packet', 'dozen', 'carton', 'bottle'];
+const ST_TXT = { out: ['khatam', '#ffb4a8', '#5a2020'], low: ['kam hai', '#f5c04a', '#4a3a14'], ok: ['theek', '#8fd19e', '#1d3a26'] };
+async function viewStock() {
+  const [d, rc] = await Promise.all([A('/stock'), A('/recipes')]);
+  const items = d.items, opt = items.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('');
+  const nr = rc.variants.filter(v => !v.recipe.length).length;
+  view.innerHTML = `
+  <div class="box"><b style="color:var(--gold)">Stock ki halat</b>
+    <table><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din</th><th>Halat</th><th></th></tr>
+    ${items.map(i => { const t = ST_TXT[i.status]; return `<tr><td>${esc(i.name)}</td><td><b>${i.bal}</b> ${i.unit}</td><td>${i.per_day ? i.per_day + ' ' + i.unit : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
+      <td><span style="background:${t[2]};color:${t[1]};border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px">${t[0]}</span></td>
+      <td style="white-space:nowrap"><button class="btn s" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}">Ginti</button> <button class="btn s" data-act="min" data-id="${i.id}" data-m="${i.min_level}" data-n="${esc(i.name)}">Kam-az-kam: ${i.min_level}</button> <button class="btn red" data-act="del" data-id="${i.id}" data-n="${esc(i.name)}">✕</button></td></tr>`; }).join('') || '<tr><td colspan="6" style="color:var(--mute)">Abhi koi item nahi. Neeche se banayen.</td></tr>'}</table>
+    <small style="color:var(--mute)">"Kitne din" pichle 7 din ki sale se nikalta hai (recipe wale items ke liye). "Ginti" = asal bacha hua likhein, farq khud theek ho jata hai.</small></div>
+  <div class="box"><b style="color:var(--gold)">Saman aaya (+)</b>
+    <div class="r"><select id="iItem"><option value="">Item chunein</option>${opt}</select><input id="iQty" type="number" step="any" min="0" placeholder="Kitna aaya"><input id="iAmt" type="number" min="0" placeholder="Rs (khali = kharcha nahi)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
+    <small style="color:var(--mute)">Rs likhne par ye Kharcha mein bhi (Saman) darj ho jata hai, dobara likhne ki zarurat nahi.</small></div>
+  <div class="box"><b style="color:var(--gold)">Naya stock item</b>
+    <div class="r"><input id="nName" placeholder="Naam (Maida, Wings, Cold Drink 500ml...)"><select id="nUnit" class="n">${UNITS.map(u => `<option>${u}</option>`).join('')}</select><input id="nMin" class="n" type="number" step="any" min="0" placeholder="Kam-az-kam"><input id="nOpen" class="n" type="number" step="any" min="0" placeholder="Abhi kitna hai"><button class="btn gold s" id="nAdd">+ Banao</button></div></div>
+  <div class="box"><b style="color:var(--gold)">Recipe (kis item mein kitna saman lagta hai)</b>
+    <small style="color:var(--mute)">${nr} menu items ki recipe abhi nahi. Recipe lagne ke baad har sale par stock khud kam hoga.</small>
+    <select id="rSel"><option value="">Menu item chunein...</option>${rc.variants.map(v => `<option value="${v.id}">${v.recipe.length ? '✓' : '○'} ${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${v.recipe.length ? '' : ' (Recipe nahi)'}</option>`).join('')}</select>
+    <div id="rBox"></div></div>
+  <div class="box"><b>Akhri entries</b><table>${d.moves.map(m => `<tr><td>${m.date}</td><td>${esc(m.name)}</td><td>${m.qty > 0 ? '+' : ''}${m.qty} ${m.unit}</td><td style="color:var(--mute)">${m.kind === 'in' ? 'Aaya' : 'Ginti'} ${esc(m.note)}</td></tr>`).join('') || '<tr><td style="color:var(--mute)">—</td></tr>'}</table></div>`;
+  $('#iAdd').onclick = () => guard(async () => {
+    await A('/stock/in', 'POST', { item_id: $('#iItem').value, qty: $('#iQty').value, amount: $('#iAmt').value, date: $('#iDate').value });
+    toast('Stock mein add ho gaya ✓'); viewStock();
+  });
+  $('#nAdd').onclick = () => guard(async () => {
+    await A('/stock/items', 'POST', { name: $('#nName').value, unit: $('#nUnit').value, min_level: $('#nMin').value, opening: $('#nOpen').value });
+    toast('Item ban gaya ✓'); viewStock();
+  });
+  $('#rSel').onchange = () => {
+    const v = rc.variants.find(x => String(x.id) === $('#rSel').value), box = $('#rBox'); box.innerHTML = '';
+    if (!v) return;
+    if (!items.length) { box.innerHTML = '<small style="color:var(--mute)">Pehle upar stock items banayen.</small>'; return; }
+    const rows = v.recipe.length ? v.recipe.map(r => ({ ...r })) : [{ item_id: '', qty: '' }];
+    const draw = () => {
+      box.innerHTML = rows.map((r, i) => `<div class="r"><select data-i="${i}" data-f="item_id"><option value="">Saman...</option>${items.map(s => `<option value="${s.id}"${String(s.id) === String(r.item_id) ? ' selected' : ''}>${esc(s.name)} (${s.unit})</option>`).join('')}</select><input data-i="${i}" data-f="qty" type="number" step="any" min="0" placeholder="1 sale mein kitna" value="${r.qty}"><button class="btn red s" data-rm="${i}">✕</button></div>`).join('')
+        + '<div class="r"><button class="btn s" id="rMore">+ Aur saman</button><button class="btn gold s" id="rSave">Recipe save</button></div>';
+      box.querySelectorAll('[data-f]').forEach(x => x.oninput = x.onchange = () => { rows[x.dataset.i][x.dataset.f] = x.value; });
+      box.querySelectorAll('[data-rm]').forEach(x => x.onclick = () => { rows.splice(+x.dataset.rm, 1); draw(); });
+      $('#rMore').onclick = () => { rows.push({ item_id: '', qty: '' }); draw(); };
+      $('#rSave').onclick = () => guard(async () => { await A('/recipes/' + v.id, 'PUT', { rows }); toast('Recipe save ✓'); viewStock(); });
+    };
+    draw();
+  };
+  view.onclick = e => guard(async () => {
+    const b = e.target.closest('[data-act]'); if (!b) return;
+    if (b.dataset.act === 'cnt') { const c = prompt(`${b.dataset.n}: asal mein kitna bacha hai? (system ke hisab se ${b.dataset.b})`); if (c === null || c === '') return; await A('/stock/count', 'POST', { item_id: b.dataset.id, count: c }); toast('Ginti theek ho gayi ✓'); viewStock(); }
+    if (b.dataset.act === 'min') { const c = prompt(`${b.dataset.n}: kam-az-kam kitna hona chahiye? (isse kam ho to alert aayega)`, b.dataset.m); if (c === null) return; await A('/stock/items/' + b.dataset.id, 'PUT', { min_level: c }); viewStock(); }
+    if (b.dataset.act === 'del' && confirm(`${b.dataset.n} stock list se hata dein? (recipe se bhi hat jayega)`)) { await A('/stock/items/' + b.dataset.id, 'DELETE'); viewStock(); }
   });
 }
 
