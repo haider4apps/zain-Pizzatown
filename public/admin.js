@@ -200,7 +200,7 @@ async function viewStock() {
     <table><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din</th><th>Halat</th><th></th></tr>
     ${items.map(i => { const t = ST_TXT[i.status]; return `<tr><td>${esc(i.name)}</td><td><b>${i.bal}</b> ${i.unit}</td><td>${i.per_day ? i.per_day + ' ' + i.unit : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
       <td><span style="background:${t[2]};color:${t[1]};border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px">${t[0]}</span></td>
-      <td style="white-space:nowrap"><button class="btn s" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}">Ginti</button> <button class="btn s" data-act="min" data-id="${i.id}" data-m="${i.min_level}" data-n="${esc(i.name)}">Kam-az-kam: ${i.min_level}</button> <button class="btn red" data-act="del" data-id="${i.id}" data-n="${esc(i.name)}">✕</button></td></tr>`; }).join('') || '<tr><td colspan="6" style="color:var(--mute)">Abhi koi item nahi. Neeche se banayen.</td></tr>'}</table>
+      <td style="white-space:nowrap"><button class="btn s" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}">Ginti</button> <button class="btn s" data-act="min" data-id="${i.id}" data-m="${i.min_level}" data-n="${esc(i.name)}">Kam-az-kam: ${i.min_level}</button></td></tr>`; }).join('') || '<tr><td colspan="6" style="color:var(--mute)">Abhi koi item nahi. Neeche se banayen.</td></tr>'}</table>
     <small style="color:var(--mute)">"Kitne din" pichle 7 din ki sale se nikalta hai (recipe wale items ke liye). "Ginti" = asal bacha hua likhein, farq khud theek ho jata hai.</small></div>
   <div class="box"><b style="color:var(--gold)">Saman aaya (+)</b>
     <div class="r"><select id="iGrp"><option value="">Group</option>${grpList(cats, items).map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="iItem" disabled><option value="">Pehle group chunein</option></select><input id="iQty" type="number" step="any" min="0" placeholder="Kitna aaya"><input id="iAmt" type="number" min="0" placeholder="Rs (khali = kharcha nahi)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
@@ -213,8 +213,16 @@ async function viewStock() {
     <select id="rSel" disabled><option value="">Pehle group chunein</option></select>
     <select id="rSelAll" hidden><option value="">Menu item chunein...</option>${rc.variants.map(v => `<option value="${v.id}">${v.recipe.length ? '✓' : '○'} ${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${v.recipe.length ? '' : ' (Recipe nahi)'}</option>`).join('')}</select>
     <div id="rBox"></div></div>
+  ${items.length ? `<div class="box"><b style="color:var(--mute)">Item hatayein</b>
+    <div class="r"><select id="dItem"><option value="">Kaunsa item hatana hai?</option>${opt}</select><button class="btn red s" id="dGo">Hatayein</button></div>
+    <small style="color:var(--mute)">Sirf woh item hatayein jo ab dukaan mein nahi rakhte.</small></div>` : ''}
   <div class="box"><b>Akhri entries</b><table>${d.moves.map(m => `<tr><td>${m.date}</td><td>${esc(m.name)}</td><td>${m.qty > 0 ? '+' : ''}${m.qty} ${m.unit}</td><td style="color:var(--mute)">${m.kind === 'in' ? 'Aaya' : 'Ginti'} ${esc(m.note)}</td></tr>`).join('') || '<tr><td style="color:var(--mute)">—</td></tr>'}</table></div>`;
   $('#iGrp').onchange = () => { const g = $('#iGrp').value; $('#iItem').disabled = !g; $('#iItem').innerHTML = g ? grpItems(items, g, rc.variants) : '<option value="">Pehle group chunein</option>'; };
+  if ($('#dGo')) $('#dGo').onclick = () => guard(async () => {
+    const id = $('#dItem').value; if (!id) throw new Error('Pehle item chunein');
+    const it = items.find(x => String(x.id) === id);
+    if (confirm(`${it.name} (bacha ${it.bal} ${it.unit}) stock list se hata dein?`)) { await A('/stock/items/' + id, 'DELETE'); toast('Hata diya'); viewStock(); }
+  });
   $('#iAdd').onclick = () => guard(async () => {
     await A('/stock/in', 'POST', { ...pickBody($('#iItem').value), qty: $('#iQty').value, amount: $('#iAmt').value, date: $('#iDate').value });
     toast('Stock mein add ho gaya ✓'); viewStock();
@@ -243,7 +251,7 @@ async function viewStock() {
     const b = e.target.closest('[data-act]'); if (!b) return;
     if (b.dataset.act === 'cnt') { const c = prompt(`${b.dataset.n}: asal mein kitna bacha hai? (system ke hisab se ${b.dataset.b})`); if (c === null || c === '') return; await A('/stock/count', 'POST', { item_id: b.dataset.id, count: c }); toast('Ginti theek ho gayi ✓'); viewStock(); }
     if (b.dataset.act === 'min') { const c = prompt(`${b.dataset.n}: kam-az-kam kitna hona chahiye? (isse kam ho to alert aayega)`, b.dataset.m); if (c === null) return; await A('/stock/items/' + b.dataset.id, 'PUT', { min_level: c }); viewStock(); }
-    if (b.dataset.act === 'del' && confirm(`${b.dataset.n} stock list se hata dein? (recipe se bhi hat jayega)`)) { await A('/stock/items/' + b.dataset.id, 'DELETE'); viewStock(); }
+
   });
 }
 
