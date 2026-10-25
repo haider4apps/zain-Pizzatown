@@ -140,7 +140,7 @@ function grpItems(items, g, vars) {
   return l.length ? '<option value="">Item chunein</option>' + l.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('') : '<option value="">Koi item nahi (neeche "Naya stock item" se banayen)</option>';
 }
 const pickBody = val => String(val).startsWith('v') ? { variant_id: String(val).slice(1) } : { item_id: val };
-const EXP_CATS = ['Gas', 'Salary', 'Rent', 'Bijli/Pani', 'Saman (stock)', 'Rider', 'Repair', 'Other'];
+const EXP_CATS = ['Gas', 'Petrol', 'Salary', 'Rent', 'Bijli/Pani', 'Rider', 'Repair', 'Other'];
 async function viewExpenses() {
   const r = await A('/report'); // sirf aaj ki date lene ke liye
   const day = window._expDay || r.from;
@@ -150,8 +150,10 @@ async function viewExpenses() {
   const mcats = [...new Set(rcv.map(v => v.cat))];
   const sum = list.reduce((s, x) => s + x.amount, 0);
   view.innerHTML = `<div class="box"><b style="color:var(--gold)">Kharcha likhein</b>
-    <div class="r"><input type="date" id="eDate" value="${day}"><select id="eCat"><option value="">Kharcha kis cheez ka? (chunein)</option>${EXP_CATS.map(c => `<option value="${c}">${c === 'Saman (stock)' ? 'Saman khareeda (stock mein jayega)' : c}</option>`).join('')}</select></div>
-    <div class="r" id="eStockRow" hidden><select id="eGrp"><option value="">Group chunein</option>${grpList(mcats, st).map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="eStock" disabled><option value="">Pehle group chunein</option></select><input id="eQty" type="number" step="any" min="0" placeholder="Kitne aaye (tadaad)"></div>
+    <div class="r"><input type="date" id="eDate" value="${day}"><select id="eCat"><option value="">Kharcha kis cheez ka? (chunein)</option>
+      <optgroup label="Menu / stock ka saman">${grpList(mcats, st).map(g => `<option value="g:${esc(g)}">${esc(g)}</option>`).join('')}</optgroup>
+      <optgroup label="Dusre kharche">${EXP_CATS.map(c => `<option value="${c}">${c}</option>`).join('')}</optgroup></select></div>
+    <div class="r" id="eStockRow" hidden><select id="eStock"><option value="">Item chunein</option></select><input id="eQty" type="number" step="any" min="0" placeholder="Kitne aaye (tadaad)"></div>
     <div class="r"><input id="eAmt" type="number" min="1" placeholder="Kul kitne Rs diye"><input id="eNote" placeholder="Note (zaroori nahi)"><button class="btn gold s" id="eAdd">+ Add</button></div>
     <small style="color:var(--mute)">Ek entry = ek kharcha. Saman khareeda ho to wo stock mein bhi khud barh jata hai.</small></div>
     <div class="box"><div class="r"><b style="flex:1 1 auto">${mode === 'day' ? day + ' ka' : month + ' ka'} kharcha: ${money(sum)}</b>
@@ -161,15 +163,16 @@ async function viewExpenses() {
   $('#vDate').onchange = e => { if (e.target.value) { window._expDay = e.target.value; viewExpenses(); } };
   $('#vDay').onclick = () => { window._expMode = 'day'; viewExpenses(); };
   $('#vMon').onclick = () => { window._expMode = 'month'; viewExpenses(); };
-  $('#eCat').onchange = () => { $('#eStockRow').hidden = $('#eCat').value !== 'Saman (stock)'; };
-  $('#eGrp').onchange = () => {
-    const g = $('#eGrp').value, sel = $('#eStock');
-    sel.disabled = !g;
-    sel.innerHTML = g ? grpItems(st, g, rcv) : '<option value="">Pehle group chunein</option>';
+  $('#eCat').onchange = () => {
+    const v = $('#eCat').value, g = v.startsWith('g:') ? v.slice(2) : '';
+    $('#eStockRow').hidden = !g;
+    if (g) $('#eStock').innerHTML = grpItems(st, g, rcv);
   };
   $('#eAdd').onclick = () => guard(async () => {
     if (!$('#eCat').value) throw new Error('Pehle chunein: kharcha kis cheez ka hai');
-    if ($('#eCat').value === 'Saman (stock)' && $('#eStock').value) {
+    if ($('#eCat').value.startsWith('g:')) {
+      if (!$('#eStock').value) throw new Error('Item chunein');
+      if (!(+$('#eAmt').value > 0)) throw new Error('Kul kitne Rs diye, likhein');
       await A('/stock/in', 'POST', { ...pickBody($('#eStock').value), qty: $('#eQty').value, amount: $('#eAmt').value, date: $('#eDate').value, note: $('#eNote').value });
       toast('Kharcha + stock likh liya ✓'); viewExpenses(); return;
     }
