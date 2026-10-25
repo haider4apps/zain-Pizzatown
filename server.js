@@ -702,8 +702,24 @@ admin.delete('/stock/items/:id', (req, res) => {
   res.json({ ok: true });
 });
 // Aaya hua saman. amount ho to Kharcha mein bhi likha jata hai (dono jagah se same cheez)
+// Menu item (variant) se stock item dhoondo, na ho to khud bana do (recipe: 1 sale = 1 piece)
+function stockForVariant(vid) {
+  const v = db.prepare('select v.id,v.label,i.name,c.name cat from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.id=?').get(vid);
+  if (!v) return { err: 'Menu item nahi mila' };
+  const rec = db.prepare('select r.item_id from recipes r join stock_items s on s.id=r.item_id and s.active=1 where r.variant_id=?').all(v.id);
+  if (rec.length > 1) return { err: 'Is item ki recipe mein kai cheezein hain. Un ka stock "Raw saman" se alag daalein.' };
+  if (rec.length === 1) return { id: rec[0].item_id };
+  const nm = (v.name + (v.label ? ' ' + v.label : '')).slice(0, 60);
+  let it = db.prepare('select id from stock_items where active=1 and lower(name)=lower(?)').get(nm);
+  if (!it) it = { id: db.prepare("insert into stock_items(name,unit,grp,created_at) values(?,'piece',?,?)").run(nm, v.cat, fmtDT(new Date())).lastInsertRowid };
+  db.prepare('delete from recipes where variant_id=?').run(v.id);
+  db.prepare('insert into recipes(variant_id,item_id,qty) values(?,?,1)').run(v.id, it.id);
+  return { id: it.id };
+}
 admin.post('/stock/in', (req, res) => {
-  const b = req.body || {}, it = db.prepare('select * from stock_items where id=? and active=1').get(b.item_id);
+  const b = req.body || {};
+  if (b.variant_id) { const r = stockForVariant(b.variant_id); if (r.err) return res.status(400).json({ error: r.err }); b.item_id = r.id; }
+  const it = db.prepare('select * from stock_items where id=? and active=1').get(b.item_id);
   if (!it) return res.status(400).json({ error: 'Item chunein' });
   const qty = num(b.qty); if (qty <= 0) return res.status(400).json({ error: 'Miqdar likhein' });
   const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : businessDate(), now = fmtDT(new Date());

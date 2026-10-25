@@ -126,16 +126,28 @@ async function viewSales() {
 }
 
 // ---------- expenses ----------
-// Group list: menu ki categories + Raw saman (+ purane items ke group), chahe stock item abhi bane hon ya nahi
+// Group list: menu ki categories + Raw saman (+ purane items ke group)
 const grpList = (cats, items) => [...new Set(cats.concat(['Raw saman'], items.map(i => i.grp || 'Dusra')))];
-const grpItems = (items, g) => { const l = items.filter(i => (i.grp || 'Dusra') === g); return l.length ? '<option value="">Item chunein</option>' + l.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('') : '<option value="">Is group ka stock item nahi (Stock tab se banayen)</option>'; };
+// Menu group -> us group ke menu items seedhe (stock khud banta hai). Raw saman -> banaye hue stock items
+function grpItems(items, g, vars) {
+  const mv = (vars || []).filter(v => v.cat === g);
+  if (mv.length) {
+    const bal = Object.fromEntries(items.map(i => [i.id, i]));
+    return '<option value="">Item chunein</option>' + mv.map(v => { const one = v.recipe.length === 1 ? bal[v.recipe[0].item_id] : null;
+      return `<option value="v${v.id}">${esc(v.name)}${v.label ? ' ' + esc(v.label) : ''}${one ? ` (bacha ${one.bal})` : ''}</option>`; }).join('');
+  }
+  const l = items.filter(i => (i.grp || 'Dusra') === g);
+  return l.length ? '<option value="">Item chunein</option>' + l.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('') : '<option value="">Koi item nahi (neeche "Naya stock item" se banayen)</option>';
+}
+const pickBody = val => String(val).startsWith('v') ? { variant_id: String(val).slice(1) } : { item_id: val };
 const EXP_CATS = ['Gas', 'Salary', 'Rent', 'Bijli/Pani', 'Saman (stock)', 'Rider', 'Repair', 'Other'];
 async function viewExpenses() {
   const r = await A('/report'); // sirf aaj ki date lene ke liye
   const day = window._expDay || r.from;
   const month = day.slice(0, 7), mode = window._expMode || 'day';
   const list = mode === 'day' ? await A(`/expenses?from=${day}&to=${day}`) : await A(`/expenses?from=${month}-01&to=${month}-31`);
-  const [st, mcats] = await Promise.all([A('/stock').then(x => x.items), A('/menu').then(m => m.map(c => c.name))]);
+  const [st, rcv] = await Promise.all([A('/stock').then(x => x.items), A('/recipes').then(x => x.variants)]);
+  const mcats = [...new Set(rcv.map(v => v.cat))];
   const sum = list.reduce((s, x) => s + x.amount, 0);
   view.innerHTML = `<div class="box"><b style="color:var(--gold)">Kharcha likhein</b>
     <div class="r"><input type="date" id="eDate" value="${day}"><select id="eCat">${EXP_CATS.map(c => `<option>${c}</option>`).join('')}</select>
@@ -151,11 +163,11 @@ async function viewExpenses() {
   $('#eGrp').onchange = () => {
     const g = $('#eGrp').value, sel = $('#eStock');
     sel.disabled = !g;
-    sel.innerHTML = g ? grpItems(st, g) : '<option value="">Pehle group chunein</option>';
+    sel.innerHTML = g ? grpItems(st, g, rcv) : '<option value="">Pehle group chunein</option>';
   };
   $('#eAdd').onclick = () => guard(async () => {
     if ($('#eStock').value) {
-      await A('/stock/in', 'POST', { item_id: $('#eStock').value, qty: $('#eQty').value, amount: $('#eAmt').value, date: $('#eDate').value, note: $('#eNote').value });
+      await A('/stock/in', 'POST', { ...pickBody($('#eStock').value), qty: $('#eQty').value, amount: $('#eAmt').value, date: $('#eDate').value, note: $('#eNote').value });
       toast('Kharcha + stock likh liya ✓'); viewExpenses(); return;
     }
     await A('/expenses', 'POST', { date: $('#eDate').value, category: $('#eCat').value, note: $('#eNote').value, amount: $('#eAmt').value });
@@ -176,7 +188,7 @@ async function viewStock() {
   const items = d.items, opt = items.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('');
   const nr = rc.variants.filter(v => !v.recipe.length).length;
   const cats = [...new Set(rc.variants.map(v => v.cat))];
-  const grpOpts = cats.concat(['Raw saman']).map(c => `<option>${esc(c)}</option>`).join('');
+  const grpOpts = ['Raw saman'].concat(cats).map(c => `<option>${esc(c)}</option>`).join('');
   view.innerHTML = `
   <div class="box"><b style="color:var(--gold)">Stock ki halat</b>
     <table><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din</th><th>Halat</th><th></th></tr>
@@ -187,32 +199,29 @@ async function viewStock() {
   <div class="box"><b style="color:var(--gold)">Saman aaya (+)</b>
     <div class="r"><select id="iGrp"><option value="">Group</option>${grpList(cats, items).map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="iItem" disabled><option value="">Pehle group chunein</option></select><input id="iQty" type="number" step="any" min="0" placeholder="Kitna aaya"><input id="iAmt" type="number" min="0" placeholder="Rs (khali = kharcha nahi)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
     <small style="color:var(--mute)">Rs likhne par ye Kharcha mein bhi (Saman) darj ho jata hai, dobara likhne ki zarurat nahi.</small></div>
-  <div class="box"><b style="color:var(--gold)">Naya stock item</b>
+  <div class="box"><b style="color:var(--gold)">Naya raw saman (Maida, Cheese, Wings...)</b><small style="color:var(--mute)">Menu ke items (Cold Drink wagera) yahan banane ki zarurat nahi, upar group chun kar seedha quantity daalein.</small>
     <div class="r"><select id="nGrp" class="n">${grpOpts}</select><input id="nName" placeholder="Naam (Maida, Wings, Cold Drink 500ml...)"><select id="nUnit" class="n">${UNITS.map(u => `<option>${u}</option>`).join('')}</select><input id="nMin" class="n" type="number" step="any" min="0" placeholder="Kam-az-kam"><input id="nOpen" class="n" type="number" step="any" min="0" placeholder="Abhi kitna hai"><button class="btn gold s" id="nAdd">+ Banao</button></div></div>
   <div class="box"><b style="color:var(--gold)">Recipe (kis item mein kitna saman lagta hai)</b>
-    <small style="color:var(--mute)">${nr} menu items ki recipe abhi nahi. Recipe lagne ke baad har sale par stock khud kam hoga.</small>
-    <div class="r"><select id="mCat">${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select><button class="btn gold s" id="mMake">Is group ka stock + recipe ek click mein banao</button></div>
-    <small style="color:var(--mute)">Cold Drinks jaise items ke liye: har item ka stock khud ban jayega aur recipe "1 sale = 1 piece" lag jayegi.</small>
+    <small style="color:var(--mute)">Menu item (jaise Cold Drink) ka stock daalte hi us ki recipe khud lag jati hai. Pizza/Deal jaise items mein raw saman (Maida, Cheese...) yahan se jorein.</small>
     <select id="rGrp"><option value="">Group chunein...</option>${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select>
     <select id="rSel" disabled><option value="">Pehle group chunein</option></select>
     <select id="rSelAll" hidden><option value="">Menu item chunein...</option>${rc.variants.map(v => `<option value="${v.id}">${v.recipe.length ? '✓' : '○'} ${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${v.recipe.length ? '' : ' (Recipe nahi)'}</option>`).join('')}</select>
     <div id="rBox"></div></div>
   <div class="box"><b>Akhri entries</b><table>${d.moves.map(m => `<tr><td>${m.date}</td><td>${esc(m.name)}</td><td>${m.qty > 0 ? '+' : ''}${m.qty} ${m.unit}</td><td style="color:var(--mute)">${m.kind === 'in' ? 'Aaya' : 'Ginti'} ${esc(m.note)}</td></tr>`).join('') || '<tr><td style="color:var(--mute)">—</td></tr>'}</table></div>`;
-  $('#iGrp').onchange = () => { const g = $('#iGrp').value; $('#iItem').disabled = !g; $('#iItem').innerHTML = g ? grpItems(items, g) : '<option value="">Pehle group chunein</option>'; };
+  $('#iGrp').onchange = () => { const g = $('#iGrp').value; $('#iItem').disabled = !g; $('#iItem').innerHTML = g ? grpItems(items, g, rc.variants) : '<option value="">Pehle group chunein</option>'; };
   $('#iAdd').onclick = () => guard(async () => {
-    await A('/stock/in', 'POST', { item_id: $('#iItem').value, qty: $('#iQty').value, amount: $('#iAmt').value, date: $('#iDate').value });
+    await A('/stock/in', 'POST', { ...pickBody($('#iItem').value), qty: $('#iQty').value, amount: $('#iAmt').value, date: $('#iDate').value });
     toast('Stock mein add ho gaya ✓'); viewStock();
   });
   $('#nAdd').onclick = () => guard(async () => {
     await A('/stock/items', 'POST', { grp: $('#nGrp').value, name: $('#nName').value, unit: $('#nUnit').value, min_level: $('#nMin').value, opening: $('#nOpen').value });
     toast('Item ban gaya ✓'); viewStock();
   });
-  $('#mMake').onclick = () => guard(async () => { const c = $('#mCat').value, id = (await A('/menu')).find(x => x.name === c); const r = await A('/stock/from-menu', 'POST', { category_id: id.id }); toast(`${r.made} stock item bane, ${r.linked} recipe lagi ✓`, 3500); viewStock(); });
   $('#rGrp').onchange = () => { const g = $('#rGrp').value, sel = $('#rSel'); sel.disabled = !g; sel.innerHTML = g ? '<option value="">Item chunein...</option>' + rc.variants.filter(v => v.cat === g).map(v => `<option value="${v.id}">${v.recipe.length ? '✓' : '○'} ${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${v.recipe.length ? '' : ' (Recipe nahi)'}</option>`).join('') : '<option value="">Pehle group chunein</option>'; $('#rBox').innerHTML = ''; };
   $('#rSel').onchange = () => {
     const v = rc.variants.find(x => String(x.id) === $('#rSel').value), box = $('#rBox'); box.innerHTML = '';
     if (!v) return;
-    if (!items.length) { box.innerHTML = '<small style="color:var(--mute)">Pehle upar stock items banayen.</small>'; return; }
+    if (!items.length) { box.innerHTML = '<small style="color:var(--mute)">Pehle \"Naya raw saman\" se saman banayen.</small>'; return; }
     const rows = v.recipe.length ? v.recipe.map(r => ({ ...r })) : [{ item_id: '', qty: '' }];
     const draw = () => {
       box.innerHTML = rows.map((r, i) => `<div class="r"><select data-i="${i}" data-f="item_id"><option value="">Saman...</option>${items.map(s => `<option value="${s.id}"${String(s.id) === String(r.item_id) ? ' selected' : ''}>${esc(s.name)} (${s.unit})</option>`).join('')}</select><input data-i="${i}" data-f="qty" type="number" step="any" min="0" placeholder="1 sale mein kitna" value="${r.qty}"><button class="btn red s" data-rm="${i}">✕</button></div>`).join('')
