@@ -72,6 +72,7 @@ create index if not exists idx_outbox_pending on outbox(synced_at);
 create table if not exists stock_items(
   id integer primary key, name text not null, unit text default 'piece', min_level real default 0,
   active integer default 1, created_at text);
+
 create table if not exists stock_moves(
   id integer primary key, item_id integer not null, qty real not null, kind text not null,
   ref integer, expense_id integer, date text, note text default '', created_at text);
@@ -80,6 +81,7 @@ create table if not exists recipes(
 create index if not exists idx_moves_item on stock_moves(item_id);
 create index if not exists idx_moves_ref on stock_moves(ref);
 `);
+addCol('stock_items', 'grp', "text default ''");
 const uuid = () => crypto.randomUUID();
 db.prepare('select id from orders where uid is null').all().forEach(r => db.prepare('update orders set uid=? where id=?').run(uuid(), r.id));
 
@@ -357,7 +359,7 @@ function stockList() {
     let status = 'ok';
     if (b <= 0) status = 'out';
     else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= 2)) status = 'low';
-    return { id: i.id, name: i.name, unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status };
+    return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status };
   });
 }
 app.get('/api/stock/alerts', (req, res) => {
@@ -683,7 +685,7 @@ admin.post('/stock/items', (req, res) => {
   const ex = db.prepare('select id from stock_items where active=1 and lower(name)=lower(?)').get(name);
   if (ex) return res.status(400).json({ error: 'Ye item pehle se hai' });
   const unit = String(b.unit || 'piece').slice(0, 12), now = fmtDT(new Date());
-  const id = db.prepare('insert into stock_items(name,unit,min_level,created_at) values(?,?,?,?)').run(name, unit, Math.max(0, num(b.min_level)), now).lastInsertRowid;
+  const id = db.prepare('insert into stock_items(name,unit,min_level,grp,created_at) values(?,?,?,?,?)').run(name, unit, Math.max(0, num(b.min_level)), String(b.grp || '').slice(0, 40), now).lastInsertRowid;
   const open = num(b.opening);
   if (open > 0) db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'adjust',?,'Shuru ka stock',?)").run(id, open, businessDate(), now);
   res.json({ id });
@@ -729,9 +731,23 @@ admin.post('/stock/count', (req, res) => {
   res.json({ ok: true });
 });
 admin.get('/recipes', (req, res) => {
-  const vs = db.prepare(`select v.id,v.label,i.name from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.active=1 and i.active=1 order by c.sort,c.id,i.sort,i.id,v.sort,v.id`).all();
+  const vs = db.prepare(`select v.id,v.label,i.name,c.name cat from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.active=1 and i.active=1 order by c.sort,c.id,i.sort,i.id,v.sort,v.id`).all();
   const rec = db.prepare('select r.variant_id v,r.item_id i,r.qty q from recipes r').all();
   res.json({ variants: vs.map(v => ({ ...v, recipe: rec.filter(r => r.v === v.id).map(r => ({ item_id: r.i, qty: r.q })) })) });
+});
+// Menu ki category se stock items + recipe (1 sale = 1 piece) ek click mein bana do (cold drinks wagera ke liye)
+admin.post('/stock/from-menu', (req, res) => {
+  const c = db.prepare('select * from categories where id=?').get((req.body || {}).category_id);
+  if (!c) return res.status(400).json({ error: 'Category chunein' });
+  const vs = db.prepare('select v.id,v.label,i.name from variants v join items i on i.id=v.item_id where i.category_id=? and v.active=1 and i.active=1 order by i.sort,i.id,v.sort,v.id').all(c.id);
+  let made = 0, linked = 0; const now = fmtDT(new Date());
+  db.transaction(() => vs.forEach(v => {
+    const nm = (v.name + (v.label ? ' ' + v.label : '')).slice(0, 60);
+    let it = db.prepare('select id from stock_items where active=1 and lower(name)=lower(?)').get(nm);
+    if (!it) { it = { id: db.prepare("insert into stock_items(name,unit,grp,created_at) values(?,'piece',?,?)").run(nm, c.name, now).lastInsertRowid }; made++; }
+    if (!db.prepare('select 1 from recipes where variant_id=?').get(v.id)) { db.prepare('insert into recipes(variant_id,item_id,qty) values(?,?,1)').run(v.id, it.id); linked++; }
+  }))();
+  res.json({ made, linked });
 });
 admin.put('/recipes/:vid', (req, res) => {
   const rows = (Array.isArray((req.body || {}).rows) ? req.body.rows : []).filter(r => r.item_id && num(r.qty) > 0);
