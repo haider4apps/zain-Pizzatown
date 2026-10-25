@@ -126,18 +126,21 @@ async function viewSales() {
 }
 
 // ---------- expenses ----------
+// Group list: menu ki categories + Raw saman (+ purane items ke group), chahe stock item abhi bane hon ya nahi
+const grpList = (cats, items) => [...new Set(cats.concat(['Raw saman'], items.map(i => i.grp || 'Dusra')))];
+const grpItems = (items, g) => { const l = items.filter(i => (i.grp || 'Dusra') === g); return l.length ? '<option value="">Item chunein</option>' + l.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('') : '<option value="">Is group ka stock item nahi (Stock tab se banayen)</option>'; };
 const EXP_CATS = ['Gas', 'Salary', 'Rent', 'Bijli/Pani', 'Saman (stock)', 'Rider', 'Repair', 'Other'];
 async function viewExpenses() {
   const r = await A('/report'); // sirf aaj ki date lene ke liye
   const day = window._expDay || r.from;
   const month = day.slice(0, 7), mode = window._expMode || 'day';
   const list = mode === 'day' ? await A(`/expenses?from=${day}&to=${day}`) : await A(`/expenses?from=${month}-01&to=${month}-31`);
-  const st = (await A('/stock')).items;
+  const [st, mcats] = await Promise.all([A('/stock').then(x => x.items), A('/menu').then(m => m.map(c => c.name))]);
   const sum = list.reduce((s, x) => s + x.amount, 0);
   view.innerHTML = `<div class="box"><b style="color:var(--gold)">Kharcha likhein</b>
     <div class="r"><input type="date" id="eDate" value="${day}"><select id="eCat">${EXP_CATS.map(c => `<option>${c}</option>`).join('')}</select>
       <input id="eNote" placeholder="Note (optional)"><input id="eAmt" type="number" min="1" placeholder="Rs"><button class="btn gold s" id="eAdd">+ Add</button></div>
-    <div class="r"><select id="eGrp"><option value="">Group (agar saman khareeda)</option>${[...new Set(st.map(i => i.grp || 'Dusra'))].map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="eStock" disabled><option value="">Pehle group chunein</option></select><input id="eQty" type="number" step="any" min="0" placeholder="Kitna aaya"></div></div>
+    <div class="r"><select id="eGrp"><option value="">Group (agar saman khareeda)</option>${grpList(mcats, st).map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="eStock" disabled><option value="">Pehle group chunein</option></select><input id="eQty" type="number" step="any" min="0" placeholder="Kitna aaya"></div></div>
     <div class="box"><div class="r"><b style="flex:1 1 auto">${mode === 'day' ? day + ' ka' : month + ' ka'} kharcha: ${money(sum)}</b>
       <input type="date" id="vDate" class="n" value="${day}"><button class="btn s${mode === 'day' ? ' gold' : ''}" id="vDay">Sirf yeh din</button><button class="btn s${mode === 'month' ? ' gold' : ''}" id="vMon">Poora mahina</button></div><table><tr><th>Date</th><th>Category</th><th>Note</th><th>Rs</th><th></th></tr>
     ${list.map(x => `<tr><td>${x.date}</td><td>${esc(x.category)}</td><td>${esc(x.note)}</td><td>${money(x.amount)}</td><td><button class="btn red" data-act="dx" data-id="${x.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--mute)">—</td></tr>'}</table></div>`;
@@ -148,7 +151,7 @@ async function viewExpenses() {
   $('#eGrp').onchange = () => {
     const g = $('#eGrp').value, sel = $('#eStock');
     sel.disabled = !g;
-    sel.innerHTML = g ? `<option value="">Item chunein</option>` + st.filter(i => (i.grp || 'Dusra') === g).map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('') : '<option value="">Pehle group chunein</option>';
+    sel.innerHTML = g ? grpItems(st, g) : '<option value="">Pehle group chunein</option>';
   };
   $('#eAdd').onclick = () => guard(async () => {
     if ($('#eStock').value) {
@@ -182,7 +185,7 @@ async function viewStock() {
       <td style="white-space:nowrap"><button class="btn s" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}">Ginti</button> <button class="btn s" data-act="min" data-id="${i.id}" data-m="${i.min_level}" data-n="${esc(i.name)}">Kam-az-kam: ${i.min_level}</button> <button class="btn red" data-act="del" data-id="${i.id}" data-n="${esc(i.name)}">✕</button></td></tr>`; }).join('') || '<tr><td colspan="6" style="color:var(--mute)">Abhi koi item nahi. Neeche se banayen.</td></tr>'}</table>
     <small style="color:var(--mute)">"Kitne din" pichle 7 din ki sale se nikalta hai (recipe wale items ke liye). "Ginti" = asal bacha hua likhein, farq khud theek ho jata hai.</small></div>
   <div class="box"><b style="color:var(--gold)">Saman aaya (+)</b>
-    <div class="r"><select id="iGrp"><option value="">Group</option>${[...new Set(items.map(i => i.grp || 'Dusra'))].map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="iItem" disabled><option value="">Pehle group chunein</option></select><input id="iQty" type="number" step="any" min="0" placeholder="Kitna aaya"><input id="iAmt" type="number" min="0" placeholder="Rs (khali = kharcha nahi)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
+    <div class="r"><select id="iGrp"><option value="">Group</option>${grpList(cats, items).map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="iItem" disabled><option value="">Pehle group chunein</option></select><input id="iQty" type="number" step="any" min="0" placeholder="Kitna aaya"><input id="iAmt" type="number" min="0" placeholder="Rs (khali = kharcha nahi)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
     <small style="color:var(--mute)">Rs likhne par ye Kharcha mein bhi (Saman) darj ho jata hai, dobara likhne ki zarurat nahi.</small></div>
   <div class="box"><b style="color:var(--gold)">Naya stock item</b>
     <div class="r"><select id="nGrp" class="n">${grpOpts}</select><input id="nName" placeholder="Naam (Maida, Wings, Cold Drink 500ml...)"><select id="nUnit" class="n">${UNITS.map(u => `<option>${u}</option>`).join('')}</select><input id="nMin" class="n" type="number" step="any" min="0" placeholder="Kam-az-kam"><input id="nOpen" class="n" type="number" step="any" min="0" placeholder="Abhi kitna hai"><button class="btn gold s" id="nAdd">+ Banao</button></div></div>
@@ -195,7 +198,7 @@ async function viewStock() {
     <select id="rSelAll" hidden><option value="">Menu item chunein...</option>${rc.variants.map(v => `<option value="${v.id}">${v.recipe.length ? '✓' : '○'} ${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${v.recipe.length ? '' : ' (Recipe nahi)'}</option>`).join('')}</select>
     <div id="rBox"></div></div>
   <div class="box"><b>Akhri entries</b><table>${d.moves.map(m => `<tr><td>${m.date}</td><td>${esc(m.name)}</td><td>${m.qty > 0 ? '+' : ''}${m.qty} ${m.unit}</td><td style="color:var(--mute)">${m.kind === 'in' ? 'Aaya' : 'Ginti'} ${esc(m.note)}</td></tr>`).join('') || '<tr><td style="color:var(--mute)">—</td></tr>'}</table></div>`;
-  $('#iGrp').onchange = () => { const g = $('#iGrp').value; $('#iItem').disabled = !g; $('#iItem').innerHTML = g ? '<option value="">Item chunein</option>' + items.filter(i => (i.grp || 'Dusra') === g).map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('') : '<option value="">Pehle group chunein</option>'; };
+  $('#iGrp').onchange = () => { const g = $('#iGrp').value; $('#iItem').disabled = !g; $('#iItem').innerHTML = g ? grpItems(items, g) : '<option value="">Pehle group chunein</option>'; };
   $('#iAdd').onclick = () => guard(async () => {
     await A('/stock/in', 'POST', { item_id: $('#iItem').value, qty: $('#iQty').value, amount: $('#iAmt').value, date: $('#iDate').value });
     toast('Stock mein add ho gaya ✓'); viewStock();
