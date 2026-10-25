@@ -150,9 +150,10 @@ async function viewExpenses() {
   const mcats = [...new Set(rcv.map(v => v.cat))];
   const sum = list.reduce((s, x) => s + x.amount, 0);
   view.innerHTML = `<div class="box"><b style="color:var(--gold)">Kharcha likhein</b>
-    <div class="r"><input type="date" id="eDate" value="${day}"><select id="eCat">${EXP_CATS.map(c => `<option>${c}</option>`).join('')}</select>
-      <input id="eNote" placeholder="Note (optional)"><input id="eAmt" type="number" min="1" placeholder="Rs"><button class="btn gold s" id="eAdd">+ Add</button></div>
-    <div class="r"><select id="eGrp"><option value="">Group (agar saman khareeda)</option>${grpList(mcats, st).map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="eStock" disabled><option value="">Pehle group chunein</option></select><input id="eQty" type="number" step="any" min="0" placeholder="Kitna aaya"></div></div>
+    <div class="r"><input type="date" id="eDate" value="${day}"><select id="eCat"><option value="">Kharcha kis cheez ka? (chunein)</option>${EXP_CATS.map(c => `<option value="${c}">${c === 'Saman (stock)' ? 'Saman khareeda (stock mein jayega)' : c}</option>`).join('')}</select></div>
+    <div class="r" id="eStockRow" hidden><select id="eGrp"><option value="">Group chunein</option>${grpList(mcats, st).map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="eStock" disabled><option value="">Pehle group chunein</option></select><input id="eQty" type="number" step="any" min="0" placeholder="Kitne aaye (tadaad)"></div>
+    <div class="r"><input id="eAmt" type="number" min="1" placeholder="Kul kitne Rs diye"><input id="eNote" placeholder="Note (zaroori nahi)"><button class="btn gold s" id="eAdd">+ Add</button></div>
+    <small style="color:var(--mute)">Ek entry = ek kharcha. Saman khareeda ho to wo stock mein bhi khud barh jata hai.</small></div>
     <div class="box"><div class="r"><b style="flex:1 1 auto">${mode === 'day' ? day + ' ka' : month + ' ka'} kharcha: ${money(sum)}</b>
       <input type="date" id="vDate" class="n" value="${day}"><button class="btn s${mode === 'day' ? ' gold' : ''}" id="vDay">Sirf yeh din</button><button class="btn s${mode === 'month' ? ' gold' : ''}" id="vMon">Poora mahina</button></div><table><tr><th>Date</th><th>Category</th><th>Note</th><th>Rs</th><th></th></tr>
     ${list.map(x => `<tr><td>${x.date}</td><td>${esc(x.category)}</td><td>${esc(x.note)}</td><td>${money(x.amount)}</td><td><button class="btn red" data-act="dx" data-id="${x.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--mute)">—</td></tr>'}</table></div>`;
@@ -160,13 +161,15 @@ async function viewExpenses() {
   $('#vDate').onchange = e => { if (e.target.value) { window._expDay = e.target.value; viewExpenses(); } };
   $('#vDay').onclick = () => { window._expMode = 'day'; viewExpenses(); };
   $('#vMon').onclick = () => { window._expMode = 'month'; viewExpenses(); };
+  $('#eCat').onchange = () => { $('#eStockRow').hidden = $('#eCat').value !== 'Saman (stock)'; };
   $('#eGrp').onchange = () => {
     const g = $('#eGrp').value, sel = $('#eStock');
     sel.disabled = !g;
     sel.innerHTML = g ? grpItems(st, g, rcv) : '<option value="">Pehle group chunein</option>';
   };
   $('#eAdd').onclick = () => guard(async () => {
-    if ($('#eStock').value) {
+    if (!$('#eCat').value) throw new Error('Pehle chunein: kharcha kis cheez ka hai');
+    if ($('#eCat').value === 'Saman (stock)' && $('#eStock').value) {
       await A('/stock/in', 'POST', { ...pickBody($('#eStock').value), qty: $('#eQty').value, amount: $('#eAmt').value, date: $('#eDate').value, note: $('#eNote').value });
       toast('Kharcha + stock likh liya ✓'); viewExpenses(); return;
     }
