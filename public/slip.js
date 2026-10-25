@@ -31,6 +31,7 @@ function bill(o, S, L) {
     ${chg(o, L)}
     ${row(L.orderNo, '#' + o.order_no, 'grand')}
     ${row(L.kind, L.type[o.type])}
+    ${o.table_no ? row(L.tbl, '<b style="font-size:1.3em">' + esc(o.table_no) + '</b>') : ''}
     ${row(L.time, when(o.created_at))}
     ${o.customer_name ? row(L.name, esc(o.customer_name)) : ''}
     ${o.phone ? row(L.phone, esc(o.phone)) : ''}
