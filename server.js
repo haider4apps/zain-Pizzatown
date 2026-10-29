@@ -82,6 +82,10 @@ create index if not exists idx_moves_item on stock_moves(item_id);
 create index if not exists idx_moves_ref on stock_moves(ref);
 `);
 addCol('stock_items', 'grp', "text default ''");
+// Menu delete ab "chhupana" hai (deleted=1), taake ghalti se delete hua wapas aa sake
+addCol('categories', 'deleted', 'integer default 0');
+addCol('items', 'deleted', 'integer default 0');
+addCol('variants', 'deleted', 'integer default 0');
 const uuid = () => crypto.randomUUID();
 db.prepare('select id from orders where uid is null').all().forEach(r => db.prepare('update orders set uid=? where id=?').run(uuid(), r.id));
 
@@ -119,9 +123,10 @@ const DEFAULTS = {
   golive_done: '',                // (internal) Go-Live aik hi baar
   last_alive: '',                 // (internal) POS aakhri baar kab chal raha tha
   purge_fake_done: '',            // (internal) purane test orders aik baar saaf hue
+  restore_1850_done: '',          // (internal) ghalti se delete hui Deal Rs 1850 aik baar wapas
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done']);
+const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done']);
+const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -143,9 +148,9 @@ const nextSort = (table, col, val) =>
   (db.prepare(`select coalesce(max(sort),-1)+1 n from ${table} where ${col}=?`).get(val).n);
 
 function fullMenu(admin) {
-  const cats = db.prepare(`select * from categories ${admin ? '' : 'where active=1'} order by sort,id`).all();
-  const items = db.prepare(`select * from items ${admin ? '' : 'where active=1'} order by sort,id`).all();
-  const vars = db.prepare(`select * from variants ${admin ? '' : 'where active=1'} order by sort,id`).all();
+  const cats = db.prepare(`select * from categories where deleted=0 ${admin ? '' : 'and active=1'} order by sort,id`).all();
+  const items = db.prepare(`select * from items where deleted=0 ${admin ? '' : 'and active=1'} order by sort,id`).all();
+  const vars = db.prepare(`select * from variants where deleted=0 ${admin ? '' : 'and active=1'} order by sort,id`).all();
   const vByItem = {};
   vars.forEach(v => { if (!admin) delete v.cost; (vByItem[v.item_id] = vByItem[v.item_id] || []).push(v); });
   const iByCat = {};
@@ -402,7 +407,7 @@ function calcOrder(b, S, keepItems) {
   const type = ['dinein', 'takeaway', 'delivery'].includes(b.type) ? b.type : 'takeaway';
   if (!Array.isArray(b.items) || !b.items.length) return { err: 'Cart khali hai' };
   if (type === 'delivery' && !String(b.address || '').trim()) return { err: 'Delivery ke liye address likhein' };
-  const getV = db.prepare(`select v.id,v.label,v.price,v.cost,i.name,i.details from variants v join items i on i.id=v.item_id where v.id=? and v.active=1 and i.active=1`);
+  const getV = db.prepare(`select v.id,v.label,v.price,v.cost,i.name,i.details from variants v join items i on i.id=v.item_id where v.id=? and v.active=1 and i.active=1 and v.deleted=0 and i.deleted=0`);
   const lines = [];
   for (const it of b.items) {
     const qty = Math.min(99, Math.max(1, int(it.qty, 1)));
@@ -576,7 +581,7 @@ admin.put('/categories/:id', (req, res) => {
 });
 admin.delete('/categories/:id', (req, res) => {
   const o = db.prepare('select * from categories where id=?').get(req.params.id);
-  db.prepare('delete from categories where id=?').run(req.params.id);
+  db.prepare('update categories set deleted=1 where id=?').run(req.params.id);
   if (o) logEvent('menu', `Section delete: ${o.name}`);
   res.json({ ok: true });
 });
@@ -602,7 +607,7 @@ admin.put('/items/:id', (req, res) => {
 });
 admin.delete('/items/:id', (req, res) => {
   const o = db.prepare('select * from items where id=?').get(req.params.id);
-  db.prepare('delete from items where id=?').run(req.params.id);
+  db.prepare('update items set deleted=1 where id=?').run(req.params.id);
   if (o) logEvent('menu', `Item delete: ${o.name}`);
   res.json({ ok: true });
 });
@@ -653,8 +658,25 @@ admin.put('/variants/:id', (req, res) => {
 });
 admin.delete('/variants/:id', (req, res) => {
   const o = db.prepare('select v.*, i.name item_name from variants v join items i on i.id=v.item_id where v.id=?').get(req.params.id);
-  db.prepare('delete from variants where id=?').run(req.params.id);
+  db.prepare('update variants set deleted=1 where id=?').run(req.params.id);
   if (o) logEvent('menu', `Size delete: ${o.item_name} (${o.label || '-'})`);
+  res.json({ ok: true });
+});
+
+// Delete kiye hue menu (wapas lane ke liye)
+admin.get('/trash', (req, res) => {
+  res.json({
+    categories: db.prepare('select id,name from categories where deleted=1 order by name').all(),
+    items: db.prepare('select i.id,i.name,i.grp,c.name cat from items i join categories c on c.id=i.category_id where i.deleted=1 and c.deleted=0 order by c.sort,i.name').all(),
+    variants: db.prepare('select v.id,v.label,v.price,i.name from variants v join items i on i.id=v.item_id where v.deleted=1 and i.deleted=0 order by i.name').all(),
+  });
+});
+admin.post('/restore/:kind/:id', (req, res) => {
+  const t = { categories: 'categories', items: 'items', variants: 'variants' }[req.params.kind];
+  if (!t) return res.status(400).json({ error: 'Ghalat' });
+  db.prepare(`update ${t} set deleted=0 where id=?`).run(req.params.id);
+  const r = db.prepare(`select * from ${t} where id=?`).get(req.params.id);
+  if (r) logEvent('menu', `Wapas laya: ${r.name || r.label || r.id}`);
   res.json({ ok: true });
 });
 
@@ -747,7 +769,7 @@ admin.post('/stock/count', (req, res) => {
   res.json({ ok: true });
 });
 admin.get('/recipes', (req, res) => {
-  const vs = db.prepare(`select v.id,v.label,i.name,c.name cat from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.active=1 and i.active=1 order by c.sort,c.id,i.sort,i.id,v.sort,v.id`).all();
+  const vs = db.prepare(`select v.id,v.label,i.name,c.name cat from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.active=1 and i.active=1 and v.deleted=0 and i.deleted=0 and c.deleted=0 order by c.sort,c.id,i.sort,i.id,v.sort,v.id`).all();
   const rec = db.prepare('select r.variant_id v,r.item_id i,r.qty q from recipes r').all();
   res.json({ variants: vs.map(v => ({ ...v, recipe: rec.filter(r => r.v === v.id).map(r => ({ item_id: r.i, qty: r.q })) })) });
 });
@@ -826,7 +848,7 @@ admin.get('/report', (req, res) => {
   const dayList = Object.values(days).sort((a, b) => (a.d < b.d ? 1 : -1)).map(x => ({ ...x, net: x.profit - x.expenses }));
   res.json({
     from, to, now: businessDate(), totals, days: dayList,
-    missing_cost: db.prepare('select count(*) n from variants v join items i on i.id=v.item_id where v.active=1 and i.active=1 and v.price>0 and v.cost<=0').get().n,
+    missing_cost: db.prepare('select count(*) n from variants v join items i on i.id=v.item_id where v.active=1 and i.active=1 and v.deleted=0 and i.deleted=0 and v.price>0 and v.cost<=0').get().n,
     by_type: db.prepare(`select type, count(*) n, sum(total) total, sum(profit) profit from orders where ${W} group by type`).all(...A),
     gifts: db.prepare(`select coalesce(gift_by,'-') by_whom, count(*) n, sum(subtotal) value, sum(cost) cost from orders where ${W} and payment='Gift' group by gift_by`).all(...A),
     by_payment: db.prepare(`select payment, count(*) n, sum(total) total from orders where ${W} group by payment`).all(...A),
@@ -921,6 +943,21 @@ function purgeOldTestData() {
 }
 purgeOldTestData();
 startupCheck();
+// Ghalti se (purane hard-delete se) gayi "Deal Rs 1850" aik baar wapas daalna
+try {
+  if (!getSettings().restore_1850_done) {
+    if (!db.prepare("select 1 from items where name='Deal Rs 1850'").get()) {
+      const c = db.prepare("select id from categories where lower(name) like '%deal%' and deleted=0 order by sort,id").get();
+      if (c) {
+        const id = db.prepare("insert into items(category_id,name,grp,details,sort) values(?,?,?,?,?)").run(c.id, 'Deal Rs 1850', 'Deal Bar', '1 Large Pizza, 1 Small Pizza, 1 Ltr Drink', -1).lastInsertRowid;
+        db.prepare("insert into variants(item_id,label,price,cost,sort) values(?,'',1850,0,0)").run(id);
+        logEvent('menu', 'Deal Rs 1850 wapas daali gayi (update se)');
+      }
+    }
+    setSetting('restore_1850_done', fmtDT(new Date()));
+  }
+} catch (e) { console.error('restore1850', e.message); }
+
 const server = app.listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
   console.log(`Pizza Town POS v${PKG.version} chal gaya.`);

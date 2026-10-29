@@ -26,9 +26,30 @@ $('#pin').onkeydown = e => { if (e.key === 'Enter') login($('#pin').value); };
 $('#tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; tab = b.dataset.t; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b)); show(); };
 function show() { document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x.dataset.t === tab)); view.onchange = view.onclick = null; ({ menu: viewMenu, sales: viewSales, exp: viewExpenses, stock: viewStock, set: viewSettings })[tab](); }
 
+// ---------- pakki tasdeeq (ghalti se delete na ho) ----------
+function sureDelete(title, what) {
+  return new Promise(res => {
+    const m = document.createElement('div'); m.className = 'modal on';
+    m.innerHTML = `<div class="sheet" style="max-width:440px"><h3 style="color:#ffb4a8">⚠ ${esc(title)}</h3>
+      <div style="font-size:16px;line-height:1.5"><b>${esc(what)}</b> menu se hat jayega.<br>Pakka karne ke liye neeche <b>HATAO</b> likhein.</div>
+      <input id="sdIn" placeholder="HATAO" autocomplete="off" style="text-transform:uppercase">
+      <div style="color:var(--mute);font-size:13px">Ghalti ho jaye to neeche "Delete kiye hue" se wapas laa sakte hain.</div>
+      <div class="two"><button class="btn" id="sdNo">Nahi, wapas</button><button class="btn red" id="sdYes" disabled>Haan, hatao</button></div></div>`;
+    document.body.appendChild(m);
+    const inp = m.querySelector('#sdIn'), yes = m.querySelector('#sdYes');
+    inp.oninput = () => { yes.disabled = inp.value.trim().toUpperCase() !== 'HATAO'; };
+    const done = v => { m.remove(); res(v); };
+    m.querySelector('#sdNo').onclick = () => done(false);
+    yes.onclick = () => done(true);
+    m.onclick = e => { if (e.target === m) done(false); };
+    inp.focus();
+  });
+}
+
 // ---------- menu ----------
 async function viewMenu() {
-  const menu = await A('/menu');
+  const [menu, trash] = await Promise.all([A('/menu'), A('/trash')]);
+  const tn = trash.categories.length + trash.items.length + trash.variants.length;
   if (!menu.find(c => c.id === catId)) catId = menu[0] && menu[0].id;
   const c = menu.find(x => x.id === catId);
   const inp = (k, id, f, val, ph = '') => `<input data-k="${k}" data-id="${id}" data-f="${f}" value="${esc(val)}" placeholder="${ph}">`;
@@ -54,7 +75,12 @@ async function viewMenu() {
       <input type="number" min="0" title="Cost (lagat)" data-k="variants" data-id="${v.id}" data-f="cost" value="${v.cost || 0}" placeholder="Cost" style="${v.price > 0 && !v.cost ? 'outline:2px solid var(--red)' : ''}">
       <label><input type="checkbox" data-k="variants" data-id="${v.id}" data-f="active" ${v.active ? 'checked' : ''}> On</label>
       <button class="btn red" data-act="delvar" data-id="${v.id}">✕</button></div>`).join('')}
-    <div><button class="btn" data-act="addvar" data-id="${i.id}">+ Size / price</button></div></div>`).join('') || '<div class="box">Is section mein abhi koi item nahi</div>'}` : ''}`;
+    <div><button class="btn" data-act="addvar" data-id="${i.id}">+ Size / price</button></div></div>`).join('') || '<div class="box">Is section mein abhi koi item nahi</div>'}` : ''}
+  <div class="box"><b style="color:var(--mute)">Delete kiye hue (${tn})</b>
+    ${tn ? `<table>${trash.categories.map(x => `<tr><td>Section</td><td><b>${esc(x.name)}</b></td><td><button class="btn gold s" data-act="restore" data-k="categories" data-rid="${x.id}">Wapas lao</button></td></tr>`).join('')}
+      ${trash.items.map(x => `<tr><td>${esc(x.cat)}${x.grp ? ' · ' + esc(x.grp) : ''}</td><td><b>${esc(x.name)}</b></td><td><button class="btn gold s" data-act="restore" data-k="items" data-rid="${x.id}">Wapas lao</button></td></tr>`).join('')}
+      ${trash.variants.map(x => `<tr><td>Size</td><td><b>${esc(x.name)}</b> ${esc(x.label || '')} Rs ${x.price}</td><td><button class="btn gold s" data-act="restore" data-k="variants" data-rid="${x.id}">Wapas lao</button></td></tr>`).join('')}</table>`
+      : '<small style="color:var(--mute)">Kuch delete nahi hua.</small>'}</div>`;
 
   $('#catSel').onchange = e => { catId = +e.target.value; viewMenu(); };
   view.onchange = e => guard(async () => {
@@ -68,9 +94,10 @@ async function viewMenu() {
     const b = e.target.closest('[data-act]'); if (!b) return;
     const a = b.dataset.act, id = b.dataset.id;
     if (a === 'addcat') { const name = prompt('Naye section ka naam:'); if (name) { const r = await A('/categories', 'POST', { name }); catId = r.id; viewMenu(); } }
-    if (a === 'delcat' && confirm('Poora section aur is ke saare items delete karein? (Purane bills ka hisaab nahi bigre ga)')) { await A('/categories/' + id, 'DELETE'); catId = null; viewMenu(); }
-    if (a === 'delitem' && confirm('Ye item delete karein? (Sirf chhupana ho to "Available" untick karein)')) { await A('/items/' + id, 'DELETE'); viewMenu(); }
-    if (a === 'delvar' && confirm('Ye size/price delete karein?')) { await A('/variants/' + id, 'DELETE'); viewMenu(); }
+    if (a === 'delcat' && await sureDelete('Poora section delete', c.name + ' (saare items samet)')) { await A('/categories/' + id, 'DELETE'); catId = null; toast('Section hata diya'); viewMenu(); }
+    if (a === 'delitem') { const it = c.items.find(x => x.id == id); if (await sureDelete('Item delete', it ? it.name : 'Item')) { await A('/items/' + id, 'DELETE'); toast('Item hata diya'); viewMenu(); } }
+    if (a === 'delvar') { const it = c.items.find(x => x.variants.some(v => v.id == id)), v = it && it.variants.find(v => v.id == id); if (await sureDelete('Size delete', (it ? it.name : '') + (v && v.label ? ' ' + v.label : '') + (v ? ' Rs ' + v.price : ''))) { await A('/variants/' + id, 'DELETE'); toast('Size hata diya'); viewMenu(); } }
+    if (a === 'restore') { await A(`/restore/${b.dataset.k}/${b.dataset.rid}`, 'POST'); toast('Wapas aa gaya ✓'); viewMenu(); }
     if (a === 'addvar') { await A(`/items/${id}/variants`, 'POST', { label: '', price: 0 }); viewMenu(); }
     if (a === 'additem') {
       const name = $('#nName').value.trim(); if (!name) return toast('Item ka naam likhein');
