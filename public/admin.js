@@ -59,28 +59,26 @@ async function viewMenu() {
       <button class="btn s" data-act="addcat">+ New section</button></div>
     <div style="color:var(--mute);font-size:13px">Har size ki 2 rakmain: pehli = <b>Price</b> (customer se), doosri = <b>Cost</b> (lagat). Cost sirf admin ko nazar aati hai. Laal box = cost abhi nahi daali.</div>
     ${c ? `<div class="r">${inp('categories', c.id, 'name', c.name, 'Section name')}${inp('categories', c.id, 'name_ur', c.name_ur, 'Urdu name')}
-      <label class="s"><input type="checkbox" data-k="categories" data-id="${c.id}" data-f="active" ${c.active ? 'checked' : ''}> Show</label>
-      <button class="btn red s" data-act="delcat" data-id="${c.id}">Delete section</button></div>` : ''}
+      <label class="s"><input type="checkbox" data-k="categories" data-id="${c.id}" data-f="active" ${c.active ? 'checked' : ''}> Show</label></div>` : ''}
   </div>
   ${c ? `<div class="box"><b style="color:var(--gold)">Naya item add karein (${esc(c.name)})</b>
     <div class="r"><input id="nName" placeholder="Item name (e.g. Pepsi)"><input id="nGrp" placeholder="Group (optional)"><input id="nDet" placeholder="Details (optional)"></div>
     <div class="r"><input id="nLabel" placeholder="Size label (e.g. 500ml, L)"><input id="nPrice" type="number" min="0" placeholder="Price"><input id="nCost" type="number" min="0" placeholder="Cost (lagat)"><button class="btn gold s" data-act="additem">+ Add item</button></div></div>
   ${c.items.map(i => `<div class="item ${i.active ? '' : 'off'}">
     <div class="r">${inp('items', i.id, 'name', i.name, 'Name')}${inp('items', i.id, 'grp', i.grp, 'Group')}${inp('items', i.id, 'details', i.details, 'Details')}
-      <label class="s"><input type="checkbox" data-k="items" data-id="${i.id}" data-f="active" ${i.active ? 'checked' : ''}> Available</label>
-      <button class="btn red s" data-act="delitem" data-id="${i.id}">Delete</button></div>
+      <label class="s"><input type="checkbox" data-k="items" data-id="${i.id}" data-f="active" ${i.active ? 'checked' : ''}> Available</label></div>
     ${i.variants.map(v => `<div class="vrow">
       <input type="text" data-k="variants" data-id="${v.id}" data-f="label" value="${esc(v.label)}" placeholder="Size (S / M / L / 500ml)">
       <input type="number" min="0" title="Sale price" data-k="variants" data-id="${v.id}" data-f="price" value="${v.price}" placeholder="Price">
       <input type="number" min="0" title="Cost (lagat)" data-k="variants" data-id="${v.id}" data-f="cost" value="${v.cost || 0}" placeholder="Cost" style="${v.price > 0 && !v.cost ? 'outline:2px solid var(--red)' : ''}">
-      <label><input type="checkbox" data-k="variants" data-id="${v.id}" data-f="active" ${v.active ? 'checked' : ''}> On</label>
-      <button class="btn red" data-act="delvar" data-id="${v.id}">✕</button></div>`).join('')}
+      <label><input type="checkbox" data-k="variants" data-id="${v.id}" data-f="active" ${v.active ? 'checked' : ''}> On</label></div>`).join('')}
     <div><button class="btn" data-act="addvar" data-id="${i.id}">+ Size / price</button></div></div>`).join('') || '<div class="box">Is section mein abhi koi item nahi</div>'}` : ''}
-  <div class="box"><b style="color:var(--mute)">Delete kiye hue (${tn})</b>
+  ${tn ? '' : '<!--'}<div class="box"><b style="color:var(--mute)">Delete kiye hue (${tn})</b>
     ${tn ? `<table>${trash.categories.map(x => `<tr><td>Section</td><td><b>${esc(x.name)}</b></td><td><button class="btn gold s" data-act="restore" data-k="categories" data-rid="${x.id}">Wapas lao</button></td></tr>`).join('')}
       ${trash.items.map(x => `<tr><td>${esc(x.cat)}${x.grp ? ' · ' + esc(x.grp) : ''}</td><td><b>${esc(x.name)}</b></td><td><button class="btn gold s" data-act="restore" data-k="items" data-rid="${x.id}">Wapas lao</button></td></tr>`).join('')}
       ${trash.variants.map(x => `<tr><td>Size</td><td><b>${esc(x.name)}</b> ${esc(x.label || '')} Rs ${x.price}</td><td><button class="btn gold s" data-act="restore" data-k="variants" data-rid="${x.id}">Wapas lao</button></td></tr>`).join('')}</table>`
-      : '<small style="color:var(--mute)">Kuch delete nahi hua.</small>'}</div>`;
+      : ''}</div>${tn ? '' : '-->'}
+  <div style="color:var(--mute);font-size:13px">Koi item band karna ho to "Available" ka tick hata dein. Mitana ho to developer se kahein.</div>`;
 
   $('#catSel').onchange = e => { catId = +e.target.value; viewMenu(); };
   view.onchange = e => guard(async () => {
