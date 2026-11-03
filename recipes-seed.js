@@ -13,7 +13,7 @@ const ITEMS = [
   ['Everyday Milk Powder', 'kg', 'g', 1000, G, 0.75, 'Pack'], ['Vanilla Powder', 'kg', 'g', 1000, G, 0.5, 'Pack'],
   ['Oil', 'kg', 'g', 1000, G, 1, 'Pouch 1kg'], ['Olper Milk', 'litre', 'g', 1030, G, 1, 'Pack 1 litre'],
   ['Anda', 'piece', '', 0, G, 30, 'Tray'], ['Seekh Kabab', 'piece', '', 0, G, 20, 'Pack'], ['Hot Shot', 'piece', '', 0, G, 40, 'Pack'],
-  ['Wings', 'piece', '', 0, G, 50, 'Pack 2kg'], ['Nuggets', 'piece', '', 0, G, 50, 'Pack'],
+  ['Wings', 'piece', '', 0, G, 50, 'Pack 2kg'], ['Nuggets', 'piece', '', 0, G, 35, 'Pack'],
   ['Boneless Thai', 'piece', '', 0, G, 20, 'Pack 2kg'], ['Chicken Patty', 'piece', '', 0, G, 12, 'Pack'], ['Chapli Patty', 'piece', '', 0, G, 12, 'Pack'],
   ['Zestful Chicken Strips', 'piece', '', 0, G, 16, 'Pack'], ['Burger Bun', 'piece', '', 0, G, 2, 'Pack'], ['Tortilla Bread', 'piece', '', 0, G, 8, 'Pack'],
   ['Shawarma Bread', 'piece', '', 0, G, 4, 'Pack'], ['Plain Paratha', 'piece', '', 0, G, 30, 'Pack'],

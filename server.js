@@ -148,10 +148,11 @@ const DEFAULTS = {
   fun_big: '3000',                // is se upar bara order               // checkout par table number ke button
   delivery_cost_assumed: '200',   // recipe ki lagat: delivery = takeaway + itna (rider/petrol)
   stock_v2_done: '',
-  stock_v2b_done: '',             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
+  stock_v2b_done: '',
+  stock_v2c_done: '',             // (internal) Nuggets pack 35 wapas             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done']);
+const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done']);
+const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -1196,11 +1197,18 @@ seedStockV2();
 try {
   if (!getSettings().stock_v2b_done) {
     const up = db.prepare('update stock_items set pack_size=?, pack_name=? where name=? and pack_size=?');
-    up.run(50, 'Thela 50kg', 'Maida', 0); up.run(50, 'Pack', 'Nuggets', 35);
+    up.run(50, 'Thela 50kg', 'Maida', 0); 
     up.run(1, 'Piece', 'F1 Packing', 0); up.run(1, 'Piece', 'F2 Packing', 0);
     setSetting('stock_v2b_done', fmtDT(new Date()));
   }
 } catch (e) { console.error('stock v2b', e.message); }
+// Nuggets ka pack 35 hi hai (owner ki copy ke mutabiq). v1.12-1.15 ne 50 kar diya tha, wapas
+try {
+  if (!getSettings().stock_v2c_done) {
+    db.prepare("update stock_items set pack_size=35 where name='Nuggets' and pack_size=50").run();
+    setSetting('stock_v2c_done', fmtDT(new Date()));
+  }
+} catch (e) { console.error('stock v2c', e.message); }
 // Owner: menu card wala naam "Lazania" hi sahi hai (v1.11.0 ne Lasagna kar diya tha, wapas)
 try {
   db.prepare("update items set name='Lazania' where name='Lasagna'").run();

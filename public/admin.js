@@ -409,8 +409,6 @@ async function viewSettings() {
   }).join('') + `<button class="btn gold" id="saveS">Save settings</button>
   <button class="btn" id="pvS">Slip preview (aakhri order ki)</button>
   <div class="box" id="syncBox" style="background:var(--panel2)">Sheet sync check ho raha hai...</div>
-  <div class="box" style="background:var(--panel2)"><b style="color:var(--gold)">Animation test (sirf dekhne ke liye, koi order nahi banta)</b>
-    <div class="r">${[['small', 'Chhota order'], ['medium', 'Darmiyana order'], ['big', 'Bara order'], ['30000', 'Sale 30,000'], ['40000', 'Sale 40,000'], ['50000', 'Sale 50,000']].map(([k, t]) => `<button class="btn s" data-fun="${k}">${t}</button>`).join('')}</div></div>
   <div class="box" id="updBox" style="background:var(--panel2)"><b style="color:var(--gold)">Software update (GitHub)</b><div id="updInfo">...</div>
     <div class="r"><button class="btn s" id="updCheck">Check for update</button><button class="btn gold s" id="updGo" style="display:none">Update karein</button></div></div>
   <div style="color:var(--mute);font-size:13px">Mobile se order lene ke liye PC aur mobile aik hi WiFi par hon, aur mobile ke browser mein PC ka address kholen (server ki black window mein "Mobile par:" ke aage likha hota hai).</div></div>`;
@@ -433,7 +431,6 @@ async function viewSettings() {
       $('#updGo').style.display = u.behind ? '' : 'none';   // latest ho to Update ka button gaib
     } catch (e) { $('#updInfo').textContent = verTxt + (quiet ? '' : ' · ' + e.message); }
   };
-  view.querySelectorAll('[data-fun]').forEach(b => (b.onclick = () => window.funShow && funShow(b.dataset.fun)));
   $('#updCheck').onclick = () => guard(() => check(false));
   check(true);   // Settings khulte hi khud check
   $('#updGo').onclick = () => guard(async () => {
