@@ -150,10 +150,11 @@ const DEFAULTS = {
   delivery_cost_assumed: '200',   // recipe ki lagat: delivery = takeaway + itna (rider/petrol)
   stock_v2_done: '',
   stock_v2b_done: '',
-  stock_v2c_done: '',             // (internal) Nuggets pack 35 wapas             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
+  stock_v2c_done: '',
+  opening_nov4_done: '',          // (internal) 4 Nov wala shuru ka stock aik baar             // (internal) Nuggets pack 35 wapas             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done']);
+const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done']);
+const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -1224,6 +1225,25 @@ try {
     setSetting('stock_v2b_done', fmtDT(new Date()));
   }
 } catch (e) { console.error('stock v2b', e.message); }
+// Shuru ka stock (owner ki ginti, 4 Nov 2026 raat). Aik hi baar: har item ka stock is ginti par set (farq "Ginti" ki tarah)
+try {
+  if (!getSettings().opening_nov4_done) {
+    const OPEN = { "Young's Creme Mayo": 4.75, Sugar: 1, 'Butter Paper': 400, 'Burger Bun': 34, 'Eka Powder': 0.08, 'Saf Instant': 0,
+      'Everyday Milk Powder': 0, 'Iodine Salt': 0.1, 'Vanilla Powder': 0.29, Macaroni: 0.3, 'Olper Milk': 0.68, 'Sweet Corn': 0, Olive: 0.5,
+      'Boneless Thai': 44, Wings: 0, 'F1 Packing': 10, 'F2 Packing': 20, 'Ketchup Sachet': 400, 'Plain Paratha': 26, 'Real Wardha': 0,
+      'Tortilla Bread': 0, 'Shawarma Bread': 0, Maida: 10, Oil: 2, Anda: 20, Sausage: 0.39, 'Top Cow Cheese': 6.48, 'Shredded 70/30 Cheese': 0.6,
+      'Seekh Kabab': 40, Nuggets: 115, 'Hot Shot': 40, 'Burger Cheese Slice': 30, 'Pizza Chicken': 8.55, 'Chicken Patty': 14, 'Chapli Patty': 6,
+      Fries: 2.65, 'Food Bag': 450, 'Pizza Box S': 18, 'Pizza Box M': 36, 'Pizza Box L': 50, 'Lazania Strip': 8, Foil: 0, 'Zestful Chicken Strips': 0 };
+    const cur = Object.fromEntries(stockList().map(i => [i.name, i])), now = fmtDT(new Date()), bd = businessDate();
+    db.transaction(() => Object.entries(OPEN).forEach(([n, q]) => {
+      const it = cur[n]; if (!it) return;
+      db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'adjust',?,?,?)").run(it.id, r2(q - it.bal), bd, 'Shuru ka stock (4 Nov ginti)', now);
+    }))();
+    setSetting('opening_nov4_done', now);
+    logEvent('setting', 'Shuru ka stock (4 Nov ginti) daal diya gaya');
+    setImmediate(stockAlertCheck);
+  }
+} catch (e) { console.error('opening stock', e.message); }
 // Nuggets ka pack 35 hi hai (owner ki copy ke mutabiq). v1.12-1.15 ne 50 kar diya tha, wapas
 try {
   if (!getSettings().stock_v2c_done) {
