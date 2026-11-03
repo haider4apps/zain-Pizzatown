@@ -256,7 +256,7 @@ async function viewStock() {
   const packTxt = i => (i.pack_size ? `${i.pack_name || 'Pack'} = ${i.pack_size} ${i.unit}` : 'Pack size?');
   view.innerHTML = `
   <div class="box"><b style="color:var(--gold)">Stock ki halat</b>
-    ${groups.map(g => `<details class="sg" data-g="${esc(g)}"${window._open[g] ? ' open' : ''}><summary><span>${esc(g)}</span> <small style="color:var(--mute)">(${items.filter(i => (i.grp || 'Dusra') === g).length} items)</small>${short(g) ? `<span class="redc">${short(g)}</span>` : ''}</summary>
+    ${groups.map(g => `<details class="sg" data-g="${esc(g)}"${window._open[g] ? ' open' : ''}><summary><span class="chev">▸</span><span>${esc(g)}</span> <small style="color:var(--mute)">(${items.filter(i => (i.grp || 'Dusra') === g).length} items)</small><small class="tap">tap karke kholein</small>${short(g) ? `<span class="redc">${short(g)}</span>` : ''}</summary>
     <table><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din</th><th>Halat</th><th></th></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => { const t = ST_TXT[i.status]; return `<tr><td>${esc(i.name)}</td><td><b>${qtyTxt(i, i.bal)}</b></td><td>${i.per_day ? fmtQ(i, i.per_day) : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
       <td><span style="background:${t[2]};color:${t[1]};border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px">${t[0]}</span></td>
       <td style="white-space:nowrap"><button class="btn s" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}" data-u="${i.unit}">Ginti</button> <button class="btn s" data-act="min" data-id="${i.id}" data-m="${i.min_level}" data-n="${esc(i.name)}" data-u="${i.unit}">Kam-az-kam: ${i.min_level} ${i.unit}</button> <button class="btn s" data-act="pack" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || ''}" data-pn="${esc(i.pack_name || '')}">${esc(packTxt(i))}</button> <button class="btn s" data-act="rate" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || 0}" data-pn="${esc(i.pack_name || 'pack')}" data-r="${i.rate || 0}">${esc(rateTxt(i))}</button></td></tr>`; }).join('') + '</table></details>').join('') || '<div style="color:var(--mute)">Abhi koi item nahi.</div>'}
@@ -273,8 +273,6 @@ async function viewStock() {
     <small style="color:var(--mute)">Pizza ki recipe mein ${esc(p.name)} gram mein likha hai. Jitna ${esc(p.name)} lagta hai, usi hisaab se neeche wala saman minus hota hai.</small>
     <div class="r"><span>1 batch ka kul wazan: <b>${p.prep_yield} g</b></span></div>
     <div id="pBox${p.id}"></div></div>`).join('')}
-  <div class="box"><b style="color:var(--gold)">Naya saman (Maida, Cheese, Dabba...)</b><small style="color:var(--mute)">Menu ke items (Cold Drink wagera) yahan banane ki zarurat nahi, upar group chun kar seedha quantity daalein.</small>
-    <div class="r"><select id="nGrp" class="n">${grpOpts}</select><input id="nName" placeholder="Naam"><select id="nUnit" class="n">${UNITS.map(u => `<option>${u}</option>`).join('')}</select><input id="nMin" class="n" type="number" step="any" min="0" placeholder="Kam-az-kam"><input id="nOpen" class="n" type="number" step="any" min="0" placeholder="Abhi kitna hai"><button class="btn gold s" id="nAdd">+ Banao</button></div></div>
   <div class="box"><b style="color:var(--gold)">Recipe (kis item mein kitna saman lagta hai)</b>
     <small style="color:var(--mute)">Recipes final hain, yahan sirf dekh sakte hain. Badalni ho to developer se kahein.</small>
     <select id="rGrp"><option value="">Group chunein...</option>${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select>
@@ -327,10 +325,6 @@ async function viewStock() {
     if (!rows.length) throw new Error('Kisi item mein miqdar likhein');
     const r = await A('/stock/count-bulk', 'POST', { rows }); toast(`${r.changed} items ka stock save ✓`); viewStock();
   });
-  $('#nAdd').onclick = () => guard(async () => {
-    await A('/stock/items', 'POST', { grp: $('#nGrp').value, name: $('#nName').value, unit: $('#nUnit').value, min_level: $('#nMin').value, opening: $('#nOpen').value });
-    toast('Item ban gaya ✓'); viewStock();
-  });
   $('#rGrp').onchange = () => { const g = $('#rGrp').value, sel = $('#rSel'); sel.disabled = !g; sel.innerHTML = g ? '<option value="">Item chunein...</option>' + rc.variants.filter(v => v.cat === g).map(v => { const has = v.recipe.length || v.parts.length; return `<option value="${v.id}">${has ? '✓' : '○'} ${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${has ? '' : ' (Recipe nahi)'}</option>`; }).join('') : '<option value="">Pehle group chunein</option>'; $('#rBox').innerHTML = ''; };
   $('#rSel').onchange = () => {
     const v = rc.variants.find(x => String(x.id) === $('#rSel').value), box = $('#rBox'); box.innerHTML = '';
@@ -344,9 +338,11 @@ async function viewStock() {
         <td>${r.cost || r.part ? rs(r.cost) + (r.part && r.away_cost !== r.cost ? ` <small style="color:var(--mute)">(🛵 ${rs(r.away_cost)})</small>` : '') : '<span style="color:var(--mute)">rate?</span>'}</td>
         <td style="color:var(--mute)">${r.part ? 'deal ka hissa' : r.away ? '🛵 sirf Takeaway/Delivery' : 'har order'}</td></tr>`).join('')}</table>
         <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:8px">
-          <div class="box" style="padding:10px"><small style="color:var(--mute)">Kul kharcha · Dine-in</small><b style="font-size:20px">Rs ${c.dine}</b></div>
-          <div class="box" style="padding:10px"><small style="color:var(--mute)">Kul kharcha · Takeaway / Delivery</small><b style="font-size:20px">Rs ${c.away}</b></div>
-          <div class="box" style="padding:10px"><small style="color:var(--mute)">Menu qeemat · bachat (Dine-in / Takeaway)</small><b style="font-size:20px">Rs ${c.price}</b><small>Rs ${c.price - c.dine} / Rs ${c.price - c.away}</small></div></div>
+          <div class="box" style="padding:10px"><small style="color:var(--mute)">Kul kharcha · Dine-in</small><b style="font-size:20px">Rs ${c.dine}</b><small>Bachat Rs ${c.price - c.dine}</small></div>
+          <div class="box" style="padding:10px"><small style="color:var(--mute)">Kul kharcha · Takeaway</small><b style="font-size:20px">Rs ${c.away}</b><small>Bachat Rs ${c.price - c.away}</small></div>
+          <div class="box" style="padding:10px"><small style="color:var(--mute)">Kul kharcha · Delivery</small><b style="font-size:20px">Rs ${c.deliv}</b><small>Bachat Rs ${c.price - c.deliv}</small></div>
+          <div class="box" style="padding:10px"><small style="color:var(--mute)">Menu qeemat</small><b style="font-size:20px">Rs ${c.price}</b></div></div>
+        <small style="color:var(--mute)">Note: Dine-in mein bottle wali ketchup lagti hai, us ka kharcha Takeaway jitne sachet ke barabar farz kiya gaya hai (Rs ${c.ketchup}). Delivery = Takeaway + rider ka kharcha Rs ${c.dcost} farz (Settings se badal sakte hain).</small>
         ${c.missing.length ? `<small style="color:#f5c04a">⚠ In ka rate abhi nahi (kul kharcha pura nahi): ${c.missing.map(esc).join(', ')}. Rate "Saman aaya" mein Rs likhne se khud lag jata hai, ya upar table se "Rate?" dabayein.</small>` : ''}`
         : '<small style="color:var(--mute)">Is ki recipe nahi hai.</small>';
     });
@@ -381,6 +377,8 @@ const FIELDS = [
   ['service_charge_enabled', 'Dine-in par service charges ka option', 'check'],
   ['service_charge_type', 'Service charge type', 'select', [['percent', 'Percent %'], ['fixed', 'Fixed Rs']]],
   ['service_charge_value', 'Service charge value', 'number'],
+  ['dine_tables', 'Dine-in tables kitne hain (order par table number ke button)', 'number'],
+  ['delivery_cost_assumed', 'Delivery ka kharcha farz (Rs) · recipe ki lagat mein', 'number'],
   ['Printing', null],
   ['paper_mm', 'Paper width', 'select', [['80', '80 mm'], ['58', '58 mm']]],
   ['slip_weight', 'Slip ke likhai ki motai (ink phail rahi ho to Patla)', 'select', [['thin', 'Patla (default)'], ['normal', 'Darmiyana'], ['bold', 'Mota (purana)']]],
@@ -420,15 +418,23 @@ async function viewSettings() {
   });
   const ver = await (await fetch('/api/version')).json();
   $('#updInfo').textContent = `Version ${ver.version}${ver.commit ? ' (' + ver.commit + ', ' + ver.date + ')' : ''}${ver.git ? '' : ' - GitHub se link nahi (setup.bat chalayen)'}`;
-  $('#updCheck').onclick = () => guard(async () => {
+  const verTxt = `Version ${ver.version}${ver.commit ? ' (' + ver.commit + ', ' + ver.date + ')' : ''}`;
+  const check = async quiet => {
+    if (!ver.git) return;
     $('#updInfo').textContent = 'Check ho raha hai...';
-    const u = await A('/update/check');
-    $('#updInfo').innerHTML = u.behind ? `Naya version maujood (${u.behind} tabdeeliyan):<br>• ${u.changes.map(esc).join('<br>• ')}` : 'Aap ke paas latest version hai ✓';
-    $('#updGo').style.display = u.behind ? '' : 'none';
-  });
+    try {
+      const u = await A('/update/check');
+      $('#updInfo').innerHTML = u.behind ? `Naya version maujood (${u.behind} tabdeeliyan):<br>• ${u.changes.map(esc).join('<br>• ')}` : `${verTxt} · Aap ke paas latest version hai ✓`;
+      $('#updGo').style.display = u.behind ? '' : 'none';   // latest ho to Update ka button gaib
+    } catch (e) { $('#updInfo').textContent = verTxt + (quiet ? '' : ' · ' + e.message); }
+  };
+  $('#updCheck').onclick = () => guard(() => check(false));
+  check(true);   // Settings khulte hi khud check
   $('#updGo').onclick = () => guard(async () => {
     if (!confirm('Update karein? Software 5 second ke liye band ho kar dobara chalega. Data safe rahta hai.')) return;
+    $('#updGo').style.display = 'none';
     const u = await A('/update', 'POST'); toast(u.message, 6000); $('#updInfo').textContent = u.message;
+    setTimeout(() => location.reload(), 9000);   // naya version chalne ke baad khud dobara check
   });
   $('#pvS').onclick = () => guard(async () => {
     const list = await (await fetch('/api/orders/recent')).json();

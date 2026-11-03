@@ -141,6 +141,8 @@ const DEFAULTS = {
   restore_1850_done: '',          // (internal) ghalti se delete hui Deal Rs 1850 aik baar wapas
   pizza_upgrade: '{"M":{"Elite Flavours":100,"Premium Flavours":200},"L":{"Elite Flavours":100,"Premium Flavours":300}}', // deal mein flavour badalne ke paise
   pizza_toppings: '100,200,300',  // extra topping ke button (Rs)
+  dine_tables: '6',               // checkout par table number ke button
+  delivery_cost_assumed: '200',   // recipe ki lagat: delivery = takeaway + itna (rider/petrol)
   stock_v2_done: '',
   stock_v2b_done: '',             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
 };
@@ -921,8 +923,14 @@ admin.get('/recipe-cost/:vid', (req, res) => {
     rows.push({ name: `${p.slot ? p.slot + ' Pizza (' + p.name + ')' : p.name + (p.label ? ' ' + p.label : '')}`, qty: p.qty, unit: 'deal', part: true,
       cost: Math.round(costOf(stockNeed(l, 'dinein')) * 100) / 100, away_cost: Math.round(costOf(stockNeed(l, 'takeaway')) * 100) / 100 });
   });
-  const dine = costOf(stockNeed([{ vid, qty: 1 }], 'dinein')), away = costOf(stockNeed([{ vid, qty: 1 }], 'takeaway'));
-  res.json({ name: v.name, label: v.label, price: v.price, rows, dine: Math.round(dine), away: Math.round(away), missing: [...missing] });
+  const awayTot = stockNeed([{ vid, qty: 1 }], 'takeaway');
+  // Dine-in mein bottle ki ketchup: kharcha utne hi sachet jitna (stock se minus nahi hota)
+  const ks = Object.values(items).find(i => i.name === 'Ketchup Sachet');
+  const ketchup = ks && awayTot[ks.id] ? costOf({ [ks.id]: awayTot[ks.id] }) : 0;
+  const dine = costOf(stockNeed([{ vid, qty: 1 }], 'dinein')) + ketchup, away = costOf(awayTot);
+  const dcost = int(getSettings().delivery_cost_assumed, 200);
+  res.json({ name: v.name, label: v.label, price: v.price, rows, dine: Math.round(dine), away: Math.round(away), deliv: Math.round(away + dcost),
+    ketchup: Math.round(ketchup), dcost, missing: [...missing] });
 });
 
 // ----- expenses -----

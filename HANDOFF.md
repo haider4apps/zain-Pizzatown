@@ -42,3 +42,4 @@ Chrome kiosk app: tray "Open POS" or `start.bat` (`--kiosk-printing`). POS has i
   + totals dine-in/takeaway + margin (`/api/admin/recipe-cost/:vid`), Dough cost per batch/kg/size. Stock groups folded
   (Raw saman, Packing first) with red short-count; Saman aaya only Raw saman/Packing; Kharcha page no longer adds stock.
   Pack fixes once (`stock_v2b_done`): Maida 50kg, Nuggets 50, F1/F2 = 1.
+- v1.13.0: checkout table buttons (`dine_tables`, default 6); recipe cost: dine-in adds ketchup cost (bottle, not stock), delivery = takeaway + `delivery_cost_assumed` (200); Update button hidden when latest (auto check on Settings); 'Naya saman' box removed.

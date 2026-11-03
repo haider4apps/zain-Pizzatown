@@ -156,3 +156,8 @@ a.btn{color:inherit}
 .pzopt{background:var(--panel2);border:1.5px solid var(--line);color:var(--text);border-radius:9px;padding:10px 6px;font-weight:600}
 .pzopt.on{background:#e8b94c;color:#111;border-color:#e8b94c}
 .pzclose{margin-top:12px;width:100%}
+
+/* dine-in table buttons */
+.tbls{display:grid;grid-template-columns:repeat(auto-fill,minmax(64px,1fr));gap:8px}
+.tbls button{padding:14px 6px;border-radius:10px;border:1.5px solid var(--line);background:var(--panel2);color:var(--text);font-weight:800;font-size:20px}
+.tbls button.on{background:var(--gold);color:#1a1405;border-color:var(--gold)}

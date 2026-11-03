@@ -270,7 +270,7 @@ function renderCheckout() {
   const svcLabel = settings.service_charge_type === 'percent' ? `${settings.service_charge_value}%` : `Rs ${settings.service_charge_value}`;
   sh.innerHTML = `<h3>${editing ? 'Order #' + editing.order_no + ' badlein' : 'Checkout'}</h3>
   <div class="seg" id="typeSeg">${Object.entries(TYPES).map(([k, v]) => `<button data-t="${k}" class="${co.type === k ? 'on' : ''}">${v}</button>`).join('')}</div>
-  ${co.type === 'dinein' ? `<div class="f"><label>Table / Token no. (optional)</label><input id="f_table" value="${esc(co.table_no)}"></div>` : ''}
+  ${co.type === 'dinein' ? `<div class="f"><label>Table number</label><div class="tbls" id="tbls">${Array.from({ length: Math.min(40, Math.max(1, parseInt(settings.dine_tables) || 6)) }, (_, i) => `<button type="button" data-tb="${i + 1}" class="${String(co.table_no) === String(i + 1) ? 'on' : ''}">${i + 1}</button>`).join('')}</div></div>` : ''}
   ${co.type === 'delivery' ? `
     <div class="two"><div class="f"><label>Customer name</label><input id="f_name" value="${esc(co.customer_name)}"></div>
     <div class="f"><label>Phone</label><input id="f_phone" type="tel" value="${esc(co.phone)}"></div></div>
@@ -294,6 +294,7 @@ function renderCheckout() {
   sh.querySelectorAll('#langSeg button').forEach(b => b.onclick = () => { readForm(); co.slip_lang = b.dataset.l; renderCheckout(); });
   sh.querySelectorAll('input,textarea,select').forEach(i => i.oninput = () => { readForm(); updSum(); });
   const fp = $('#f_pay'); if (fp) fp.onchange = () => { readForm(); renderCheckout(); };
+  const tb = $('#tbls'); if (tb) tb.onclick = e => { const b = e.target.closest('[data-tb]'); if (!b) return; readForm(); co.table_no = co.table_no === b.dataset.tb ? '' : b.dataset.tb; renderCheckout(); };
   $('#coCancel').onclick = () => $('#coModal').classList.remove('on');
   $('#coOk').onclick = placeOrder;
   updSum();
