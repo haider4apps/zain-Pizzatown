@@ -24,7 +24,63 @@ async function login(pin) {
 $('#pinOk').onclick = () => login($('#pin').value);
 $('#pin').onkeydown = e => { if (e.key === 'Enter') login($('#pin').value); };
 $('#tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; tab = b.dataset.t; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b)); show(); };
+// Har button par mouse rakhne se us ka maqsad (title)
+const TIPS = {
+  '[data-act="cnt"]': 'Ginti: dukaan mein asal kitna pada hai gin kar likhein (pack + khula). Stock seedha us par set ho jata hai.',
+  '[data-act="min"]': 'Kam-az-kam: is se kam stock reh jaye to peela alert. (3 din wala alert is ke ilawa khud bhi chalta hai)',
+  '[data-act="pack"]': 'Pack size: 1 pack mein kitna aata hai. Sirf tab badlein jab company pack badle (Admin PIN).',
+  '[data-act="rate"]': 'Rate: 1 pack kitne Rs ka. "Saman aaya" mein Rs likhne se khud update hota hai.',
+  '[data-act="cx"]': 'Order cancel: sale se nikal jaye ga (Sheet mein ulti entry).',
+  '[data-act="pv"]': 'Slip dekhein (print nahi hogi)', '[data-act="rp"]': 'Slip dobara print karein',
+  '[data-act="dx"]': 'Ye kharcha delete karein', '[data-act="addvar"]': 'Is item ka naya size / qeemat jorein',
+  '[data-act="additem"]': 'Is section mein naya item jorein', '[data-act="restore"]': 'Delete kiya hua wapas laayein',
+  '#iAdd': 'Saman stock mein jorein (Rs zaroori, kharcha bhi khud banta hai)', '#iPacks': 'Kitne pack aaye (pack size se kg/piece khud banenge)',
+  '#iQty': 'Ya kul miqdar (kg / litre / piece)', '#iAmt': 'Kul kitne Rs diye (zaroori)', '#iItem': 'Kaunsa saman aaya (kam/khatam wala upar)',
+  '#bSave': 'Neeche likhi sab miqdar aik saath stock par set karein', '#dmGo': 'Chune hue din ke hisaab se kya mangwana hai',
+  '#dmDays': 'Kitne din ka saman mangwana hai', '#dmPrint': 'Demand slip thermal printer par', '#dmAdd': 'List mein koi aur saman haath se jorein',
+  '#go': 'Upar chuni dates ki report', '[data-rng="0"]': 'Aaj ki sale', '[data-rng="7"]': 'Pichle 7 din', '[data-rng="30"]': 'Pichle 30 din',
+  '#eAdd': 'Kharcha likhein', '#saveS': 'Settings save karein', '#updCheck': 'GitHub par naya version hai ya nahi', '#updGo': 'Naya version lagayein',
+  '#syncNow': 'Abhi Google Sheet par bhej dein', '#pvS': 'Aakhri order ki slip ka preview', '#impGo': 'Test PC: purane orders ki copy daalein',
+  '#tabs [data-t="menu"]': 'Menu ke items aur qeematein', '#tabs [data-t="sales"]': 'Sale, profit aur orders', '#tabs [data-t="exp"]': 'Roz ke kharche',
+  '#tabs [data-t="stock"]': 'Stock, saman aaya, demand slip, recipes', '#tabs [data-t="set"]': 'Shop, printer, Sheet aur update ki settings',
+};
+function applyTips(root) { Object.entries(TIPS).forEach(([q, t]) => root.querySelectorAll(q).forEach(e => { if (!e.title) e.title = t; })); }
+new MutationObserver(() => applyTips(document)).observe(document.body, { childList: true, subtree: true });
 function show() { document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x.dataset.t === tab)); view.onchange = view.onclick = null; ({ menu: viewMenu, sales: viewSales, exp: viewExpenses, stock: viewStock, set: viewSettings })[tab](); }
+
+// ---------- live search: likhte hi list chhoti hoti jaye ----------
+// Likha hua page dobara banne par bhi yaad rehta hai (Ginti/Rate ke baad search na mite)
+window._q = window._q || {};
+const sNorm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
+// "L" likha ho to "large" se bhi mile (M = medium, S = small)
+const sSize = t => { t = ' ' + sNorm(t).replace(/[()·,]/g, ' ') + ' '; return t + (/ l /.test(t) ? ' large' : '') + (/ m /.test(t) ? ' medium' : '') + (/ s /.test(t) ? ' small' : ''); };
+const sBar = (id, ph) => `<div class="sbar"><input type="search" id="${id}" placeholder="🔍 ${esc(ph)}" autocomplete="off" value="${esc(window._q[id] || '')}"><small class="sc"></small></div>`;
+// rows: function jo filter hone wali rows de. textOf: kis text mein dhoondna hai (default pehla khana)
+// Group heading rows (class "gh") khud chhup jati hain agar un ke neeche kuch na bache
+function liveFilter(id, rows, { textOf, after } = {}) {
+  const inp = $('#' + id); if (!inp) return () => {};
+  const tx = textOf || (r => r.dataset.s !== undefined ? r.dataset.s : r.cells ? (r.cells[0] || {}).textContent : r.textContent);
+  const run = () => {
+    window._q[id] = inp.value;
+    const words = sNorm(inp.value).split(' ').filter(Boolean); let shown = 0, total = 0;
+    const list = rows();
+    list.forEach(r => {
+      if (r.classList.contains('gh')) return;
+      total++; const t = sSize(tx(r)); const ok = !words.length || words.every(w => t.includes(w));
+      r.style.display = ok ? '' : 'none'; if (ok) shown++;
+    });
+    list.filter(r => r.classList.contains('gh')).forEach(h => {
+      let n = h.nextElementSibling, any = false;
+      while (n && !n.classList.contains('gh')) { if (n.style.display !== 'none') { any = true; break; } n = n.nextElementSibling; }
+      h.style.display = !words.length || any ? '' : 'none';
+    });
+    const sc = inp.parentElement.querySelector('.sc');
+    if (sc) sc.textContent = words.length ? (shown ? `${shown} / ${total} mile` : 'Kuch nahi mila') : '';
+    if (after) after(words.length > 0);
+  };
+  inp.oninput = run; run();
+  return run;
+}
 
 // ---------- pakki tasdeeq (ghalti se delete na ho) ----------
 function sureDelete(title, what) {
@@ -64,6 +120,7 @@ async function viewMenu() {
   ${c ? `<div class="box"><b style="color:var(--gold)">Naya item add karein (${esc(c.name)})</b>
     <div class="r"><input id="nName" placeholder="Item name (e.g. Pepsi)"><input id="nGrp" placeholder="Group (optional)"><input id="nDet" placeholder="Details (optional)"></div>
     <div class="r"><input id="nLabel" placeholder="Size label (e.g. 500ml, L)"><input id="nPrice" type="number" min="0" placeholder="Price"><button class="btn gold s" data-act="additem">+ Add item</button></div></div>
+  <div class="box">${sBar('qMenu', 'Menu mein item dhoondein (saare sections)')}<div id="mHits" class="r" style="flex-wrap:wrap"></div></div>
   ${c.items.map(i => `<div class="item ${i.active ? '' : 'off'}">
     <div class="r">${inp('items', i.id, 'name', i.name, 'Name')}${inp('items', i.id, 'grp', i.grp, 'Group')}${inp('items', i.id, 'details', i.details, 'Details')}
       <label class="s"><input type="checkbox" data-k="items" data-id="${i.id}" data-f="active" ${i.active ? 'checked' : ''}> Available</label></div>
@@ -79,6 +136,15 @@ async function viewMenu() {
       : ''}</div>${tn ? '' : '-->'}
   <div style="color:var(--mute);font-size:13px">Koi item band karna ho to "Available" ka tick hata dein. Mitana ho to developer se kahein.</div>`;
 
+  // Is section mein filter + doosre sections mein jo mile un ke button (dabane se wahan chale jayein)
+  liveFilter('qMenu', () => [...view.querySelectorAll('.item')], { textOf: d => [...d.querySelectorAll('input:not([type=checkbox])')].map(x => x.value).join(' '), after: on => {
+    const words = sNorm($('#qMenu').value).split(' ').filter(Boolean), hb = $('#mHits');
+    const hits = on ? menu.filter(m => m.id !== catId).flatMap(m => m.items.filter(i => { const t = sSize(m.name + ' ' + i.name + ' ' + (i.grp || '') + ' ' + i.variants.map(v => v.label).join(' ')); return words.every(w => t.includes(w)); }).map(i => ({ m, i }))) : [];
+    hb.innerHTML = hits.length ? `<small style="color:var(--mute);width:100%">Doosre sections mein bhi mila (dabayein):</small>` + hits.slice(0, 30).map(h => `<button class="btn s" data-goc="${h.m.id}">${esc(h.m.name)} › ${esc(h.i.name)}</button>`).join('') : '';
+    const sc = $('#qMenu').parentElement.querySelector('.sc'); if (hits.length && sc.textContent === 'Kuch nahi mila') sc.textContent = 'Is section mein nahi';
+    hb.style.justifyContent = 'flex-start';
+    hb.querySelectorAll('[data-goc]').forEach(b => (b.onclick = () => { catId = +b.dataset.goc; viewMenu(); }));
+  } });
   $('#catSel').onchange = e => { catId = +e.target.value; viewMenu(); };
   view.onchange = e => guard(async () => {
     const t = e.target; const k = t.dataset.k; if (!k) return;
@@ -107,15 +173,18 @@ async function viewMenu() {
 // ---------- sales ----------
 let from = '', to = '';
 const shiftDay = (d, n) => { const x = new Date(d + 'T12:00:00'); x.setDate(x.getDate() + n); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); };
+let ordDay = '';
 async function viewSales() {
-  const r = await A(`/report?from=${from}&to=${to}`);
+  const r = await A(`/report?from=${from}&to=${to}&ord_day=${ordDay}`);
+  ordDay = r.ord_day;
   from = r.from; to = r.to;
   const t = r.totals;
   const tbl = (head, rows) => `<table><tr>${head.map(h => `<th>${h}</th>`).join('')}</tr>${rows.map(x => `<tr>${x.map(c => `<td>${c}</td>`).join('')}</tr>`).join('') || `<tr><td colspan="${head.length}" style="color:var(--mute)">—</td></tr>`}</table>`;
   view.innerHTML = `
   <div class="box"><div class="r"><button class="btn s" id="dPrev" title="Pichla din / pichli muddat">◀</button><div class="f"><label>From</label><input type="date" id="dFrom" value="${from}"></div><div class="f"><label>To</label><input type="date" id="dTo" value="${to}"></div><button class="btn s" id="dNext" title="Agla din / agli muddat">▶</button>
     <button class="btn gold s" id="go">Show</button>
-    <button class="btn s" data-rng="0">Aaj</button><button class="btn s" data-rng="7">7 din</button><button class="btn s" data-rng="30">30 din</button></div></div>
+    ${[[0, 'Aaj'], [7, '7 din'], [30, '30 din']].map(([n, t]) => { const on = to === r.now && from === shiftDay(r.now, n ? -(n - 1) : 0); return `<button class="btn s rng${on ? ' on' : ''}" data-rng="${n}">${on ? '✓ ' : ''}${t}</button>`; }).join('')}</div>
+    <small style="color:var(--mute)">Dikh raha hai: <b style="color:var(--gold)">${from === to ? from : from + ' se ' + to}</b> (${Math.round((new Date(to + 'T12:00:00') - new Date(from + 'T12:00:00')) / 864e5) + 1} din)</small></div>
   <div class="cards">
     <div class="stat"><small>Orders</small><b>${t.n}</b></div><div class="stat"><small>Total sale</small><b>${money(t.total)}</b></div>
     <div class="stat"><small>Discount</small><b>${money(t.discount)}</b></div><div class="stat"><small>Delivery charges</small><b>${money(t.delivery)}</b></div>
@@ -123,24 +192,38 @@ async function viewSales() {
     <div class="stat"><small>Cost (lagat)</small><b>${money(t.cost)}</b></div><div class="stat"><small>Profit (items)</small><b>${money(t.profit)}</b></div>
     <div class="stat"><small>Kharcha</small><b>${money(t.expenses)}</b></div><div class="stat"><small>Net profit</small><b style="color:${t.net < 0 ? 'var(--red)' : 'var(--gold)'}">${money(t.net)}</b></div></div>
   ${r.missing_cost ? `<div class="box" style="border-color:var(--red)">⚠ ${r.missing_cost} items/sizes saman ka rate abhi nahi - un ki lagat 0 ginti hai aur profit zyada dikhega. Stock mein "Saman aaya" ke saath Rs likhein ya Rate daalein.</div>` : ''}
-  <div class="box"><b>Din ba din</b>${tbl(['Date', 'Orders', 'Sale', 'Cost', 'Profit', 'Kharcha', 'Net'], r.days.map(d => [d.d, d.n, money(d.total), money(d.cost), money(d.profit), money(d.expenses), money(d.net)]))}</div>
+  <div class="box" id="dayBox"><b>Din ba din</b>${tbl(['Date', 'Orders', 'Sale', 'Cost', 'Profit', 'Kharcha', 'Net'], r.days.map(d => [d.d, d.n, money(d.total), money(d.cost), money(d.profit), money(d.expenses), money(d.net)]))}</div>
   <div class="box"><b>Order type</b>${tbl(['Type', 'Orders', 'Amount'], r.by_type.map(x => [TYPES[x.type], x.n, money(x.total)]))}
     <b>Payment</b>${tbl(['Method', 'Orders', 'Amount'], r.by_payment.map(x => [x.payment === 'Gift' ? 'Gift / Free' : x.payment, x.n, money(x.total)]))}
     ${r.gifts.length ? `<b>Gift / Free orders (kis ne diye)</b>${tbl(['Kis ki taraf se', 'Orders', 'Bill value', 'Lagat (nuqsan)'], r.gifts.map(g => [esc(g.by_whom), g.n, money(g.value), money(g.cost)]))}` : ''}
     <b>Delivery riders</b>${tbl(['Rider', 'Orders', 'Total collected', 'Delivery charges'], r.riders.map(x => [esc(x.rider || '(no name)'), x.n, money(x.total), money(x.delivery)]))}</div>
-  <div class="box"><b>Top items</b>${tbl(['Item', 'Qty', 'Amount', 'Profit'], r.top.map(x => [esc(x.item_name + (x.variant_label ? ' (' + x.variant_label + ')' : '')), x.qty, money(x.amount), money(x.profit)]))}</div>
-  <div class="box"><b>Orders</b>${tbl(['#', 'Date', 'Time', 'Type', 'Who', 'Total', ''], r.orders.map(o => [
+  <div class="box" id="topBox"><div class="r"><b style="flex:1">Har item ki sale aur profit <small style="color:var(--mute);font-weight:400">(${r.top.length} items, zyada bikne wale upar)</small></b>${r.top.length > 15 ? '<button class="btn s" id="topAll"></button>' : ''}</div>${r.top.length > 5 ? sBar('qTop', 'Item dhoondein (maslan zinger, large, deal)') : ''}${tbl(['Item', 'Qty', 'Amount', 'Profit'], r.top.map(x => [esc(x.item_name + (x.variant_label ? ' (' + x.variant_label + ')' : '')), x.qty, money(x.amount), money(x.profit)]))}</div>
+  <div class="box" id="ordBox"><div class="r"><b style="flex:1">Orders</b>${(() => { const i = r.order_days.indexOf(r.ord_day);
+      return `<button class="btn s" id="oPrev" ${i < 0 || i >= r.order_days.length - 1 ? 'disabled' : ''} title="Pichla din (jis mein orders thay)">◀</button><b style="color:var(--gold);min-width:110px;text-align:center">${r.ord_day}</b><button class="btn s" id="oNext" ${i <= 0 ? 'disabled' : ''} title="Agla din">▶</button>`; })()}</div>
+    ${r.orders.length > 5 ? sBar('qOrd', 'Order dhoondein (number, naam, table, rider, Rs)') : ''}<small style="color:var(--mute)">Sirf aik din ke orders (subah ${'5'} baje counter reset tak aik din). ◀ ▶ se doosre din. ${r.orders.length} orders.</small>${tbl(['#', 'Date', 'Time', 'Type', 'Who', 'Total', ''], r.orders.map(o => [
     o.order_no, o.business_date, o.created_at.slice(11, 16), TYPES[o.type], esc(o.customer_name || o.table_no || o.rider || ''),
     o.status === 'cancelled' ? '<s style="color:var(--red)">' + money(o.total) + '</s>' : money(o.total),
     `<button class="btn" data-act="pv" data-id="${o.id}">View</button> <button class="btn" data-act="rp" data-lang="ur" data-id="${o.id}">Reprint اردو</button> <button class="btn" data-act="rp" data-lang="en" data-id="${o.id}">Reprint EN</button> ` +
     (o.status === 'done' && o.cancel_left > 0 ? `<button class="btn red" data-act="cx" data-id="${o.id}">Cancel</button>` : '')]))}</div>`;
+  // Pehle 15 dikhte hain; search karein ya "Saare dikhao" to sab
+  const topRows = () => [...$('#topBox').querySelectorAll('tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD');
+  const topCut = on => { const all = window._topAll || on; topRows().forEach((x, i) => { if (i >= 15 && !all) x.style.display = 'none'; });
+    if ($('#topAll')) { $('#topAll').hidden = on; $('#topAll').textContent = window._topAll ? 'Sirf top 15' : `Saare dikhao (${r.top.length})`; } };
+  const topRun = liveFilter('qTop', topRows, { after: topCut });
+  if (!$('#qTop')) topCut(false);
+  if ($('#topAll')) $('#topAll').onclick = () => { window._topAll = !window._topAll; topRun(); };
+  liveFilter('qOrd', () => [...view.querySelectorAll('#ordBox tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD'), { textOf: x => [...x.cells].slice(0, 6).map(c => c.textContent).join(' ') });
+  const oi = r.order_days.indexOf(r.ord_day);
+  if ($('#oPrev')) $('#oPrev').onclick = () => { ordDay = r.order_days[oi + 1]; viewSales(); };
+  if ($('#oNext')) $('#oNext').onclick = () => { ordDay = r.order_days[oi - 1]; viewSales(); };
+  const busy = b => { if (b) { b.disabled = true; b.textContent = '⏳ ' + b.textContent.replace('✓ ', ''); } };
   const span = Math.round((new Date(to + 'T12:00:00') - new Date(from + 'T12:00:00')) / 864e5) + 1;
-  $('#dPrev').onclick = () => { from = shiftDay(from, -span); to = shiftDay(to, -span); viewSales(); };
-  $('#dNext').onclick = () => { from = shiftDay(from, span); to = shiftDay(to, span); viewSales(); };
-  $('#go').onclick = () => { from = $('#dFrom').value; to = $('#dTo').value || from; viewSales(); };
+  $('#dPrev').onclick = () => { busy($('#dPrev')); ordDay = ''; from = shiftDay(from, -span); to = shiftDay(to, -span); viewSales(); };
+  $('#dNext').onclick = () => { busy($('#dNext')); ordDay = ''; from = shiftDay(from, span); to = shiftDay(to, span); viewSales(); };
+  $('#go').onclick = () => { busy($('#go')); ordDay = ''; from = $('#dFrom').value; to = $('#dTo').value || from; viewSales(); };
   view.onclick = e => guard(async () => {
     const rg = e.target.closest('[data-rng]');
-    if (rg) { const n = +rg.dataset.rng; to = r.now; from = shiftDay(r.now, n ? -(n - 1) : 0); viewSales(); return; }
+    if (rg) { busy(rg); ordDay = ''; const n = +rg.dataset.rng; to = r.now; from = shiftDay(r.now, n ? -(n - 1) : 0); viewSales(); return; }
     const b = e.target.closest('[data-act]'); if (!b) return;
     const id = b.dataset.id;
     if (b.dataset.act === 'pv') window.open('/slip.html?preview=1&id=' + id, '_blank');
@@ -180,8 +263,9 @@ async function viewExpenses() {
     <div class="r"><input id="eAmt" type="number" min="1" placeholder="Kul kitne Rs diye"><input id="eNote" placeholder="Note (zaroori nahi)"><button class="btn gold s" id="eAdd">+ Add</button></div>
     <small style="color:var(--mute)">Ek entry = ek kharcha. Saman (cheese, dabbe wagera) <b>Stock → Saman aaya</b> se likhein, wahan se kharcha bhi khud ban jata hai.</small></div>
     <div class="box"><div class="r"><b style="flex:1 1 auto">${mode === 'day' ? day + ' ka' : month + ' ka'} kharcha: ${money(sum)}</b>
-      <input type="date" id="vDate" class="n" value="${day}"><button class="btn s${mode === 'day' ? ' gold' : ''}" id="vDay">Sirf yeh din</button><button class="btn s${mode === 'month' ? ' gold' : ''}" id="vMon">Poora mahina</button></div><table><tr><th>Date</th><th>Category</th><th>Note</th><th>Rs</th><th></th></tr>
+      <input type="date" id="vDate" class="n" value="${day}"><button class="btn s${mode === 'day' ? ' gold' : ''}" id="vDay">Sirf yeh din</button><button class="btn s${mode === 'month' ? ' gold' : ''}" id="vMon">Poora mahina</button></div>${list.length > 5 ? sBar('qExp', 'Kharcha dhoondein (category, note, Rs)') : ''}<table><tr><th>Date</th><th>Category</th><th>Note</th><th>Rs</th><th></th></tr>
     ${list.map(x => `<tr><td>${x.date}</td><td>${esc(x.category)}</td><td>${esc(x.note)}</td><td>${money(x.amount)}</td><td><button class="btn red" data-act="dx" data-id="${x.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--mute)">—</td></tr>'}</table></div>`;
+  liveFilter('qExp', () => [...view.querySelectorAll('tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD' && x.cells.length > 1), { textOf: x => [...x.cells].slice(0, 4).map(c => c.textContent).join(' ') });
   $('#eDate').onchange = e => { window._expDay = e.target.value; viewExpenses(); };
   $('#vDate').onchange = e => { if (e.target.value) { window._expDay = e.target.value; viewExpenses(); } };
   $('#vDay').onclick = () => { window._expMode = 'day'; viewExpenses(); };
@@ -277,6 +361,7 @@ async function viewStock() {
   const packTxt = i => (i.pack_size ? `${i.pack_name || 'Pack'} = ${i.pack_size} ${i.unit}` : 'Pack size?');
   view.innerHTML = `
   <div class="box"><b style="color:var(--gold)">Stock ki halat</b>
+    ${sBar('qSt', 'Stock item dhoondein (maslan cheese, dabba, maida)')}
     ${groups.map(g => `<details class="sg" data-g="${esc(g)}"${window._open[g] ? ' open' : ''}><summary><span class="chev">▸</span><span>${esc(g)}</span> <small style="color:var(--mute)">(${items.filter(i => (i.grp || 'Dusra') === g).length} items)</small><small class="tap">tap karke kholein</small>${cnt(g, 'low') ? `<span class="redc yel" title="Kam">${cnt(g, 'low')}</span>` : ''}${cnt(g, 'out') ? `<span class="redc" title="Khatam">${cnt(g, 'out')}</span>` : ''}</summary>
     <table><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din</th><th>Halat</th><th></th></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => { const t = ST_TXT[i.status]; return `<tr class="st-${i.status}"><td>${esc(i.name)}</td><td><b>${qtyTxt(i, i.bal)}</b></td><td>${i.per_day ? fmtQ(i, i.per_day) : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
       <td><span style="background:${t[2]};color:${t[1]};border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px">${t[0]}</span></td>
@@ -285,8 +370,10 @@ async function viewStock() {
   <div class="box"><b style="color:var(--gold)">Demand slip (bazaar se kya lana hai)</b>
     <div class="r"><span>Kitne din ka saman?</span><select id="dmDays" class="n">${[3, 4, 5, 6, 7, 10, 14].map(d => `<option value="${d}">${d} din</option>`).join('')}</select><button class="btn gold s" id="dmGo">🧾 Demand banao</button></div>
     <small style="color:var(--mute)">Pichle 7 din ki asal sale se roz ki khapat nikal kar, jitne din chunein utna saman minus jo bacha hai. Pack mein gol kar ke.</small>
+    <div id="dmSearch" hidden>${sBar('qDm', 'Demand mein item dhoondein')}</div>
     <div id="dmBox"></div></div>
   <div class="box"><b style="color:var(--gold)">Saman aaya (+)</b>
+    ${sBar('qIn', 'Kya aaya? Naam likhein, list chhoti ho jayegi')}
     <div class="r"><select id="iItem"><option value="">Kya aaya? (chunein)</option>${(() => {
       const st = { out: '⛔ khatam', low: '⚠ kam' }, short = items.filter(i => i.status === 'out' || i.status === 'low').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1) || a.name.localeCompare(b.name));
       const o = i => `<option value="${i.id}">${esc(i.name)} (${i.unit})${st[i.status] ? ' · ' + st[i.status] : ''}</option>`;
@@ -296,8 +383,9 @@ async function viewStock() {
     <small style="color:var(--mute)" id="iHint">Pack size set ho to sirf "Kitne pack" likhein (maslan 3), kg khud ban jayenge. Rs likhna zaroori hai, ye Kharcha mein bhi khud darj ho jata hai aur saman ka rate bhi update hota hai.</small></div>
   <div class="box"><b style="color:var(--gold)">Shuru ka stock / sab ki ginti (aik saath)</b>
     <small style="color:var(--mute)">Jo saman abhi dukaan mein hai us ki miqdar likhein (kg / litre / piece). Khali chhorein to wo item nahi badlega.</small>
-    <table><tr><th>Item</th><th>System mein</th><th>Asal mein</th></tr>
-    ${groups.map(g => `<tr><td colspan="3" style="color:var(--gold);font-weight:700;padding-top:10px">${esc(g)}</td></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => `<tr><td>${esc(i.name)}</td><td>${+i.bal.toFixed(3)} ${i.unit}</td><td><input class="n bulk" data-id="${i.id}" type="number" step="any" min="0" placeholder="${i.unit}" style="max-width:130px"> <small class="bq" style="color:var(--gold)"></small></td></tr>`).join('')).join('')}</table>
+    ${sBar('qBulk', 'Ginti ke liye item dhoondein')}
+    <table id="bulkT"><tr><th>Item</th><th>System mein</th><th>Asal mein</th></tr>
+    ${groups.map(g => `<tr class="gh"><td colspan="3" style="color:var(--gold);font-weight:700;padding-top:10px">${esc(g)}</td></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => `<tr><td>${esc(i.name)}</td><td>${+i.bal.toFixed(3)} ${i.unit}</td><td><input class="n bulk" data-id="${i.id}" type="number" step="any" min="0" placeholder="${i.unit}" style="max-width:130px"> <small class="bq" style="color:var(--gold)"></small></td></tr>`).join('')).join('')}</table>
     <div class="r"><button class="btn gold s" id="bSave">Sab save karein</button></div></div>
   ${preps.map(p => `<div class="box"><b style="color:var(--gold)">${esc(p.name)} ki recipe (1 batch)</b>
     <small style="color:var(--mute)">Pizza ki recipe mein ${esc(p.name)} gram mein likha hai. Jitna ${esc(p.name)} lagta hai, usi hisaab se neeche wala saman minus hota hai.</small>
@@ -305,13 +393,14 @@ async function viewStock() {
     <div id="pBox${p.id}"></div></div>`).join('')}
   <div class="box"><b style="color:var(--gold)">Recipe (kis item mein kitna saman lagta hai)</b>
     <small style="color:var(--mute)">Recipes final hain, yahan sirf dekh sakte hain. Badalni ho to developer se kahein.</small>
+    ${sBar('qRc', 'Recipe dhoondein (maslan crown crust large) ya neeche group chunein')}
     <select id="rGrp"><option value="">Group chunein...</option>${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select>
     <select id="rSel" disabled><option value="">Pehle group chunein</option></select>
     <div id="rBox"></div></div>
   ${items.length ? `<div class="box"><b style="color:var(--mute)">Item hatayein</b>
     <div class="r"><select id="dItem"><option value="">Kaunsa item hatana hai?</option>${opt}</select><button class="btn red s" id="dGo">Hatayein</button></div>
     <small style="color:var(--mute)">Sirf woh item hatayein jo ab dukaan mein nahi rakhte.</small></div>` : ''}
-  <div class="box"><b>Akhri entries</b><table>${d.moves.map(m => `<tr><td>${m.date}</td><td>${esc(m.name)}</td><td>${m.qty > 0 ? '+' : ''}${+(+m.qty).toFixed(3)} ${m.unit}</td><td style="color:var(--mute)">${m.kind === 'in' ? 'Aaya' : 'Ginti'} ${esc(m.note)}</td></tr>`).join('') || '<tr><td style="color:var(--mute)">—</td></tr>'}</table></div>`;
+  <div class="box" id="mvBox"><b>Akhri entries</b>${d.moves.length > 5 ? sBar('qMv', 'Entry dhoondein (item, date, note)') : ''}<table>${d.moves.map(m => `<tr><td>${m.date}</td><td>${esc(m.name)}</td><td>${m.qty > 0 ? '+' : ''}${+(+m.qty).toFixed(3)} ${m.unit}</td><td style="color:var(--mute)">${m.kind === 'in' ? 'Aaya' : 'Ginti'} ${esc(m.note)}</td></tr>`).join('') || '<tr><td style="color:var(--mute)">—</td></tr>'}</table></div>`;
 
   // Recipes final hain: sirf dekh sakte hain, badal nahi sakte (ghalti se chhed-chhaad na ho)
   const showRows = (box, rows, withAway) => {
@@ -333,7 +422,18 @@ async function viewStock() {
       ${miss.length ? `<small style="color:#f5c04a">⚠ In ka rate abhi nahi (kharcha pura nahi): ${miss.map(esc).join(', ')}</small>` : ''}`;
   });
 
-  view.querySelectorAll('details.sg').forEach(d => d.addEventListener('toggle', () => { window._open[d.dataset.g] = d.open; }));
+  liveFilter('qMv', () => [...$('#mvBox').querySelectorAll('tr')].filter(x => x.cells.length > 1), { textOf: x => x.textContent });
+  let stSearching = false;
+  view.querySelectorAll('details.sg').forEach(d => d.addEventListener('toggle', () => { if (!stSearching) window._open[d.dataset.g] = d.open; }));
+  // Search: jis group mein mila wo khud khul jaye, baaki chhup jayein. Mita dein to pehle jaisa
+  liveFilter('qSt', () => [...view.querySelectorAll('details.sg tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD'), { after: on => {
+    stSearching = true;
+    view.querySelectorAll('details.sg').forEach(d => {
+      const any = [...d.querySelectorAll('tr')].some(x => x.cells[0] && x.cells[0].tagName === 'TD' && x.style.display !== 'none');
+      d.style.display = on && !any ? 'none' : ''; d.open = on ? any : !!window._open[d.dataset.g];
+    });
+    setTimeout(() => { stSearching = false; }, 0);
+  } });
   // Demand slip: din badalte hi khud dobara banti hai; har line ki miqdar haath se badal sakte hain, hata sakte hain, nayi jor sakte hain
   let DM = null;
   const dmQ = (r, v) => (r.sub_per && v < 1 ? Math.round(v * r.sub_per) + ' ' + r.sub_unit : +(+v).toFixed(2) + ' ' + r.unit);
@@ -346,15 +446,18 @@ async function viewStock() {
     const d = DM, rows = d.rows.filter(r => !r.del), grps = [...new Set(rows.map(r => r.grp))];
     const tot = rows.reduce((t, r) => t + dmCost(r), 0);
     const left = items.filter(i => !d.rows.some(r => r.id === i.id && !r.del));
-    $('#dmBox').innerHTML = `<table style="margin-top:8px"><tr><th>Saman</th><th>Mangwana (badal sakte hain)</th><th>Bacha</th><th>Kitne din ka bacha</th><th>Roz ki khapat</th><th></th></tr>
-      ${grps.map(g => `<tr><td colspan="6" style="color:var(--gold);font-weight:700;padding-top:10px">${esc(g)}</td></tr>` + rows.filter(r => r.grp === g).map(r => { const k = d.rows.indexOf(r);
+    $('#dmBox').innerHTML = `<table style="margin-top:8px"><tr><th>Saman</th><th>Mangwana (badal sakte hain)</th><th>Bacha</th><th>Kitne din ka bacha</th><th>Roz ki khapat</th><th>Andazan Rs</th><th></th></tr>
+      ${grps.map(g => `<tr class="gh"><td colspan="7" style="color:var(--gold);font-weight:700;padding-top:10px">${esc(g)}</td></tr>` + rows.filter(r => r.grp === g).map(r => { const k = d.rows.indexOf(r);
         return `<tr class="${dmCls(r)}"><td>${esc(r.name)}${r.manual ? ' <small style="color:var(--mute)">(haath se)</small>' : ''}</td>
         <td style="white-space:nowrap"><input class="n dmn" data-k="${k}" type="number" step="any" min="0" value="${+(+r.n).toFixed(2)}" style="max-width:90px"> ${esc(dmUnit(r))}${r.pack_size ? ` <small style="color:var(--mute)">= ${dmQ(r, r.n * r.pack_size)}</small>` : ''}</td>
         <td>${dmQ(r, r.bal)}</td><td>${r.bal <= 0 ? '<b style="color:#ff8a80">khatam</b>' : r.days_left === null ? '—' : '~' + r.days_left + ' din'}</td><td>${r.per_day ? dmQ(r, r.per_day) : '—'}</td>
-        <td><button class="btn red s" data-dmdel="${k}">✕</button></td></tr>`; }).join('')).join('') || '<tr><td colspan="6" style="color:#8fd19e">✓ Is waqt kuch mangwane ki zarurat nahi.</td></tr>'}</table>
+        <td>${r.rate ? money(Math.round(dmCost(r))) + `<br><small style="color:var(--mute)">${money(Math.round(r.rate * (r.pack_size || 1)))}/${esc(dmUnit(r))}</small>` : '<span style="color:#f5c04a">rate?</span>'}</td>
+        <td><button class="btn red s" data-dmdel="${k}">✕</button></td></tr>`; }).join('')).join('') || '<tr><td colspan="7" style="color:#8fd19e">✓ Is waqt kuch mangwane ki zarurat nahi.</td></tr>'}</table>
       <div class="r" style="margin-top:8px"><select id="dmAdd"><option value="">+ Aur saman jorein (list se)...</option>${left.map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('')}</select></div>
-      <div class="r" style="margin-top:8px"><b style="flex:1">${rows.length} cheezein${tot ? ' · andazan ' + money(Math.round(tot)) : ''}</b><button class="btn gold s" id="dmPrint">🖨 Slip print karein</button></div>
+      <div class="r" style="margin-top:8px"><div style="flex:1"><div style="font-size:13px;color:var(--mute)">${rows.length} cheezein · andazan cash (aakhri khareed ke rate se)</div><b style="font-size:26px;color:var(--gold)">${money(Math.round(tot))}</b>${(() => { const nr = rows.filter(r => !r.rate).length; return nr ? `<div style="color:#f5c04a;font-size:13px">⚠ ${nr} cheezon ka rate nahi (in ke paise is mein shamil nahi). "Saman aaya" mein Rs likhne se rate khud lag jata hai.</div>` : ''; })()}</div><button class="btn gold s" id="dmPrint">🖨 Slip print karein</button></div>
       <small style="color:var(--mute)">Laal = khatam ya ${dmAlertDays} din se kam ka bacha. Peela = ${d.days} din ke andar khatam ho jayega. ${d.days} din ke liye, pichle ${d.based_on} din ki sale ke hisaab se.</small>`;
+    $('#dmSearch').hidden = rows.length < 6;
+    liveFilter('qDm', () => [...$('#dmBox').querySelectorAll('tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD' && x.cells.length > 1 || x.classList.contains('gh')));
     $('#dmBox').querySelectorAll('.dmn').forEach(x => (x.onchange = () => { DM.rows[+x.dataset.k].n = Math.max(0, +x.value || 0); dmDraw(); }));
     $('#dmBox').querySelectorAll('[data-dmdel]').forEach(x => (x.onclick = () => { DM.rows[+x.dataset.dmdel].del = true; dmDraw(); }));
     $('#dmAdd').onchange = () => { const i = items.find(x => String(x.id) === $('#dmAdd').value); if (!i) return;
@@ -370,8 +473,8 @@ async function viewStock() {
         .g{font-weight:700;padding-top:6px;text-decoration:underline} .tick{display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:4px;vertical-align:-1px}
       </style></head><body><h1>${esc(DM.shop || 'Pizza Town')}</h1><div class="c"><b>DEMAND SLIP</b></div>
         <div class="c">${DM.date} · ${DM.days} din ka saman</div><hr>
-        <table>${pg.map(g => `<tr><td colspan="2" class="g">${esc(g)}</td></tr>` + pr.filter(r => r.grp === g).map(r => `<tr><td><span class="tick"></span>${esc(r.name)}</td><td class="r">${dmBuy(r)}</td></tr>`).join('')).join('')}</table>
-        <hr><div><b>${pr.length} cheezein</b>${tot ? ` · andazan Rs ${Math.round(tot).toLocaleString('en-PK')}` : ''}</div>
+        <table>${pg.map(g => `<tr><td colspan="2" class="g">${esc(g)}</td></tr>` + pr.filter(r => r.grp === g).map(r => `<tr><td><span class="tick"></span>${esc(r.name)}<br><small style="margin-left:15px">${dmBuy(r)}</small></td><td class="r">${r.rate ? Math.round(dmCost(r)).toLocaleString('en-PK') : 'rate?'}</td></tr>`).join('')).join('')}</table>
+        <hr><div style="font-size:15px"><b>Andazan cash: Rs ${Math.round(pr.reduce((t, r) => t + dmCost(r), 0)).toLocaleString('en-PK')}</b></div><div>${pr.length} cheezein${pr.some(r => !r.rate) ? ` · ${pr.filter(r => !r.rate).length} ka rate nahi` : ''}</div>
         <div style="font-size:11px;margin-top:4px">Pichle ${DM.based_on} din ki sale ke hisaab se</div><br><br></body></html>`);
       w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
     };
@@ -387,6 +490,12 @@ async function viewStock() {
     $('#iHint').textContent = !it ? '' : n > 0 && it.pack_size ? `${n} ${it.pack_name || 'pack'} = ${qtyTxt(it, n * it.pack_size)} stock mein judega`
       : q > 0 ? `${qtyTxt(it, q)} stock mein judega` : it.pack_size ? `1 ${it.pack_name || 'pack'} = ${qtyTxt(it, it.pack_size)}. "Kitne pack" likhein, ya kul ${it.unit} likhein.` : `Is ka pack size nahi. Kul ${it.unit} likhein.`;
     $('#iPacks').hidden = !!it && !it.pack_size; $('#iQty').placeholder = it ? `ya kul ${it.unit}` : 'ya kul miqdar'; };
+  liveFilter('qIn', () => [...$('#iItem').options].filter(o => o.value), { textOf: o => o.textContent, after: on => {
+    $('#iItem').querySelectorAll('optgroup').forEach(g => { g.hidden = on && ![...g.children].some(o => o.style.display !== 'none'); });
+    const vis = [...$('#iItem').options].filter(o => o.value && o.style.display !== 'none');
+    if (on && vis.length === 1 && $('#iItem').value !== vis[0].value) { $('#iItem').value = vis[0].value; iHint(); }
+    else if (on && $('#iItem').value && !vis.some(o => o.value === $('#iItem').value)) { $('#iItem').value = ''; iHint(); }
+  } });
   $('#iItem').onchange = iHint; $('#iPacks').oninput = iHint; $('#iQty').oninput = iHint;
   if ($('#dGo')) $('#dGo').onclick = () => guard(async () => {
     const id = $('#dItem').value; if (!id) throw new Error('Pehle item chunein');
@@ -397,13 +506,26 @@ async function viewStock() {
     await A('/stock/in', 'POST', { ...pickBody($('#iItem').value), packs: $('#iPacks').value, qty: $('#iQty').value, amount: $('#iAmt').value, date: $('#iDate').value });
     toast('Stock mein add ho gaya ✓'); viewStock();
   });
+  liveFilter('qBulk', () => [...$('#bulkT').querySelectorAll('tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD'));
   view.querySelectorAll('.bulk').forEach(x => (x.oninput = () => { const it = byId[x.dataset.id]; x.nextElementSibling.textContent = x.value === '' ? '' : '= ' + qtyTxt(it, x.value); }));
   $('#bSave').onclick = () => guard(async () => {
     const rows = [...view.querySelectorAll('.bulk')].filter(x => x.value !== '').map(x => ({ item_id: x.dataset.id, count: x.value }));
     if (!rows.length) throw new Error('Kisi item mein miqdar likhein');
     const r = await A('/stock/count-bulk', 'POST', { rows }); toast(`${r.changed} items ka stock save ✓`); viewStock();
   });
-  $('#rGrp').onchange = () => { const g = $('#rGrp').value, sel = $('#rSel'); sel.disabled = !g; sel.innerHTML = g ? '<option value="">Item chunein...</option>' + rc.variants.filter(v => v.cat === g).map(v => { const has = v.recipe.length || v.parts.length; return `<option value="${v.id}">${has ? '✓' : '○'} ${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${has ? '' : ' (Recipe nahi)'}</option>`; }).join('') : '<option value="">Pehle group chunein</option>'; $('#rBox').innerHTML = ''; };
+  const rOpt = (v, withCat) => { const has = v.recipe.length || v.parts.length; return `<option value="${v.id}">${has ? '✓' : '○'} ${withCat ? esc(v.cat) + ' › ' : ''}${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${has ? '' : ' (Recipe nahi)'}</option>`; };
+  $('#rGrp').onchange = () => { const g = $('#rGrp').value, sel = $('#rSel'); if (g && $('#qRc').value) { $('#qRc').value = ''; window._q.qRc = ''; $('#qRc').parentElement.querySelector('.sc').textContent = ''; } sel.disabled = !g; sel.innerHTML = g ? '<option value="">Item chunein...</option>' + rc.variants.filter(v => v.cat === g).map(v => rOpt(v)).join('') : '<option value="">Pehle group chunein</option>'; $('#rBox').innerHTML = ''; };
+  // Recipe search: saare groups mein se milte items list mein; aik hi mile to seedha khul jaye
+  const rFind = () => {
+    const words = sNorm($('#qRc').value).split(' ').filter(Boolean); window._q.qRc = $('#qRc').value;
+    const sc = $('#qRc').parentElement.querySelector('.sc'), sel = $('#rSel');
+    if (!words.length) { sc.textContent = ''; if (!$('#rGrp').value) { sel.disabled = true; sel.innerHTML = '<option value="">Pehle group chunein</option>'; $('#rBox').innerHTML = ''; } return; }
+    const hit = rc.variants.filter(v => words.every(w => sSize(v.cat + ' ' + v.name + ' ' + (v.label || '')).includes(w)));
+    $('#rGrp').value = ''; sc.textContent = hit.length ? hit.length + ' mile' : 'Kuch nahi mila';
+    sel.disabled = !hit.length; sel.innerHTML = hit.length ? `<option value="">${hit.length} mile, chunein...</option>` + hit.map(v => rOpt(v, true)).join('') : '<option value="">Kuch nahi mila</option>';
+    if (hit.length === 1) { sel.value = hit[0].id; sel.onchange(); } else $('#rBox').innerHTML = '';
+  };
+  $('#qRc').oninput = rFind;
   $('#rSel').onchange = () => {
     const v = rc.variants.find(x => String(x.id) === $('#rSel').value), box = $('#rBox'); box.innerHTML = '';
     if (!v) return;
@@ -425,6 +547,7 @@ async function viewStock() {
         : '<small style="color:var(--mute)">Is ki recipe nahi hai.</small>';
     });
   };
+  if ($('#qRc').value) rFind();
   view.onclick = e => guard(async () => {
     const b = e.target.closest('[data-act]'); if (!b) return;
     if (b.dataset.act === 'cnt') { countDialog(items.find(x => String(x.id) === b.dataset.id), viewStock); return; }

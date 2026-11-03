@@ -453,7 +453,7 @@ function stockList() {
 // Stock kam / khatam / wapas theek hua: Events mein line (Google Sheet ke "Stock Alerts" tab mein laal / peela / hara)
 function stockAlertCheck() {
   try {
-    const set = db.prepare('update stock_items set alert_state=? where id=?');
+    const set = db.prepare('update stock_items set alert_state=? where id=?'); let changed = false;
     stockList().forEach(i => {
       const was = db.prepare('select alert_state a from stock_items where id=?').get(i.id).a || '';
       const now = i.status === 'out' || i.status === 'low' ? i.status : '';
@@ -463,7 +463,9 @@ function stockAlertCheck() {
       if (now === 'out') logEvent('stock', `KHATAM: ${i.name} - stock khatam (${q})`);
       else if (now === 'low') logEvent('stock', `KAM: ${i.name} - sirf ${q} bacha${i.days !== null ? ' (~' + Math.max(0, Math.floor(i.days)) + ' din)' : ''}`);
       else if (i.status === 'ok' && was) logEvent('stock', `THEEK: ${i.name} - stock aa gaya (${q})`);
+      changed = true;
     });
+    if (changed) setTimeout(() => demandToSheet(true), 3000);
   } catch (e) { console.error('stock alert', e.message); }
 }
 // ---------- zaroori saman: khatam ho to order nahi lagta (Admin PIN ke baghair) ----------
@@ -1029,8 +1031,7 @@ admin.post('/stock/from-menu', (req, res) => {
   res.json({ made, linked });
 });
 // Demand slip: pichle 7 din ki asal sale (orders + recipes) se roz ki khapat, N din ka saman - bacha hua = mangwana (pack mein)
-admin.get('/stock/demand', (req, res) => {
-  const days = Math.min(30, Math.max(1, int(req.query.days, 3)));
+function computeDemand(days) {
   const bd = businessDate(), U = dailyUsage(), nDays = U.days, rows = [];
   stockList().forEach(i => {
     const perDay = U.map[i.id] || 0, bal = Math.max(0, i.bal);
@@ -1044,8 +1045,32 @@ admin.get('/stock/demand', (req, res) => {
       cost: i.rate ? Math.round((packs ? packs * i.pack_size : need) * i.rate) : null, status: i.status, days_left: perDay > 0 ? Math.round(bal / perDay * 10) / 10 : null, id: i.id, rate: i.rate || 0 });
   });
   rows.sort((a, b) => (a.grp === b.grp ? a.name.localeCompare(b.name) : a.grp === 'Raw saman' ? -1 : b.grp === 'Raw saman' ? 1 : a.grp.localeCompare(b.grp)));
-  res.json({ days, based_on: nDays, date: bd, rows, total: rows.reduce((t, r) => t + (r.cost || 0), 0), shop: getSettings().shop_name });
-});
+  return { days, based_on: nDays, date: bd, rows, total: rows.reduce((t, r) => t + (r.cost || 0), 0), no_rate: rows.filter(r => !r.rate).map(r => r.name), shop: getSettings().shop_name };
+}
+admin.get('/stock/demand', (req, res) => res.json(computeDemand(Math.min(30, Math.max(1, int(req.query.days, 3))))));
+// Google Sheet ke liye khulasa (Events mein kind 'demand'): 3 din ke saman ka cash + kam/khatam saman kitne din ka
+let lastDemandLine = '', lastDemandAt = 0;
+function demandToSheet(force) {
+  try {
+    const d = computeDemand(3), fmt = n => 'Rs ' + Math.round(n).toLocaleString('en-PK');
+    // Har saman aik line: HALAT ; Naam ; Kitne din ka bacha ; Price per pack ; Roz ki khapat  (Sheet mein alag columns)
+    const ORD = { out: 0, low: 1, ok: 2, unset: 3 }, HAL = { out: 'KHATAM', low: 'KAM', ok: 'THEEK', unset: 'STOCK NAHI LIKHA' };
+    const all = stockList().sort((a, b) => ORD[a.status] - ORD[b.status] || (a.days ?? 1e9) - (b.days ?? 1e9) || a.name.localeCompare(b.name));
+    const amt = (i, v) => (i.sub_per && Math.abs(v) < 1 ? Math.round(v * i.sub_per) + ' ' + i.sub_unit : (Math.round(v * 100) / 100) + ' ' + i.unit);
+    const cell = x => String(x).replace(/[;|]/g, ' ');
+    const line = [`${fmt(d.total)} (3 din ka saman, ${d.rows.length} cheezein${d.no_rate.length ? ', ' + d.no_rate.length + ' ka rate nahi' : ''})`]
+      .concat(all.map(i => [HAL[i.status], i.name,
+        i.status === 'out' ? 'khatam (0)' : (i.days !== null ? '~' + (Math.round(i.days * 10) / 10) + ' din' : '—') + ' (' + amt(i, i.bal) + ' bacha)',
+        i.rate ? fmt(i.rate * (i.pack_size || 1)) + ' / ' + (i.pack_size ? (i.pack_name || 'pack') : i.unit) : 'rate nahi',
+        i.per_day ? amt(i, i.per_day) + ' / din' : '—'].map(cell).join(' ; '))).join(' || ');
+    const sig = all.map(i => i.status + ':' + i.name).join(',');   // halat badle to foran, warna ghante mein aik dafa
+    if (!force && sig === lastDemandLine && Date.now() - lastDemandAt < 60 * 60 * 1000) return;
+    lastDemandLine = sig; lastDemandAt = Date.now();
+    logEvent('demand', line.slice(0, 8000));
+  } catch (e) { console.error('demand sheet', e.message); }
+}
+setTimeout(() => demandToSheet(true), 20000);
+setInterval(() => demandToSheet(false), 30 * 60 * 1000);
 // Test PC: asli Sheet ke purane orders ki copy daalna (sirf naye uid; Sheet par nahi jate, stock minus nahi hota)
 admin.post('/import-orders', (req, res) => {
   const b = req.body || {};
@@ -1158,9 +1183,14 @@ admin.get('/report', (req, res) => {
     riders: db.prepare(`select rider, count(*) n, sum(total) total, sum(delivery_charge) delivery from orders where ${W} and type='delivery' group by rider`).all(...A),
     top: db.prepare(`select oi.item_name, oi.variant_label, sum(oi.qty) qty, sum(oi.qty*oi.price) amount, sum(oi.qty*(oi.price-oi.cost)) profit
       from order_items oi join orders o on o.id=oi.order_id where o.business_date between ? and ? and o.status='done'
-      group by oi.item_name, oi.variant_label order by qty desc limit 15`).all(...A),
-    orders: db.prepare(`select id,order_no,business_date,type,table_no,customer_name,rider,total,profit,payment,gift_by,status,printed,created_at
-      from orders where business_date between ? and ? order by id desc limit 300`).all(...A).map(o => ({ ...o, cancel_left: o.status === 'done' ? editLeft(o) : 0 })),
+      group by oi.item_name, oi.variant_label order by qty desc`).all(...A),
+    // Orders ki list: sirf aik business din (5 baje counter reset tak aik din). Default: is muddat ka aakhri din jis mein orders hon
+    ...(() => {
+      const order_days = db.prepare('select distinct business_date d from orders where business_date between ? and ? order by d desc').all(...A).map(x => x.d);
+      const ord_day = order_days.includes(req.query.ord_day) ? req.query.ord_day : (order_days[0] || to);
+      return { order_days, ord_day, orders: db.prepare(`select id,order_no,business_date,type,table_no,customer_name,rider,total,profit,payment,gift_by,status,printed,created_at
+        from orders where business_date=? order by id desc`).all(ord_day).map(o => ({ ...o, cancel_left: o.status === 'done' ? editLeft(o) : 0 })) };
+    })(),
   });
 });
 admin.get('/events', (req, res) =>
