@@ -141,7 +141,7 @@ function renderMenu() {
       const b = el('button', 'chip' + (v.price > 0 ? '' : ' na'),
         (v.label ? `<small>${esc(v.label)}</small>` : '') + (v.price > 0 ? `<b>${v.price}</b>` : 'price?'));
       const sv = STOCK.variants[v.id];
-      if (sv) { b.classList.add(sv.status === 'out' ? 'stout' : 'stlow'); b.insertAdjacentHTML('beforeend', `<span class="stb">${sv.status === 'out' ? '⛔ ' + esc(sv.name) + ' khatam' : sv.days !== null && sv.days <= 3 ? '~' + Math.max(0, Math.floor(sv.days)) + ' din' : 'kam hai'}</span>`); }
+      if (sv) { b.classList.add(sv.status === 'out' ? 'stout' : 'stlow'); b.insertAdjacentHTML('beforeend', `<span class="stb">${sv.status === 'out' ? '⛔ ' + esc(sv.name) + ' khatam' : sv.days !== null && sv.days <= (+settings.stock_alert_days || 3) ? '~' + Math.max(0, Math.floor(sv.days)) + ' din' : 'kam hai'}</span>`); }
       const add = () => { addToCart(i, v); b.classList.remove('hit'); card.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); card.classList.add('hit'); };
       b.onclick = () => {
         if (!(v.price > 0)) return toast('Is ki price set nahi. Admin se price daalein.');

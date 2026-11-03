@@ -144,6 +144,7 @@ const DEFAULTS = {
   pizza_toppings: '100,200,300',  // extra topping ke button (Rs)
   pizza_topping_rules: '{"Pure Flavours":{"S":100,"M":100,"L":100},"Elite Flavours":{"M":200,"L":200},"Premium Flavours":{"M":200,"L":300}}', // kis pizza par kitne ki topping
   dine_tables: '6',
+  stock_alert_days: '3',          // itne din ya kam ka stock bache to peela alert
   fun_enabled: '1',               // order ke baad cartoon / sale ka jashn
   fun_small: '1000',              // itne tak chhota order
   fun_big: '3000',                // is se upar bara order               // checkout par table number ke button
@@ -421,6 +422,7 @@ function stockList() {
   const d = new Date(bd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 6);
   const since = d.toISOString().slice(0, 10);
   const items = db.prepare('select * from stock_items where active=1 and coalesce(is_prep,0)=0 order by grp,name').all();
+  const alertDays = Math.max(3, parseFloat(getSettings().stock_alert_days) || 3);   // itne din ya kam ka stock = peela
   const bal = Object.fromEntries(db.prepare(`select m.item_id id, ${BAL_SQL} b from stock_moves m left join orders o on o.id=m.ref and m.kind='out' group by m.item_id`).all().map(r => [r.id, r.b]));
   const use = Object.fromEntries(db.prepare(`select m.item_id id, -sum(m.qty) u from stock_moves m join orders o on o.id=m.ref where m.kind='out' and o.status='done' and m.date>=? group by m.item_id`).all(since).map(r => [r.id, r.u]));
   // jis saman ka stock kabhi likha hi nahi gaya us par alert nahi (warna naye items par har order par "khatam" aata)
@@ -431,7 +433,7 @@ function stockList() {
     let status = 'ok';
     if (!known.has(i.id)) status = 'unset';
     else if (b <= 0) status = 'out';
-    else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= 3)) status = 'low';   // 3 din ya kam ka stock = peela
+    else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= alertDays)) status = 'low';   // 3 din ya kam ka stock = peela
     return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status,
       sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0 };
   });

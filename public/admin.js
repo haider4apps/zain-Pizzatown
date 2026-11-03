@@ -265,7 +265,12 @@ async function viewStock() {
     <small style="color:var(--mute)">Pichle 7 din ki asal sale se roz ki khapat nikal kar, jitne din chunein utna saman minus jo bacha hai. Pack mein gol kar ke.</small>
     <div id="dmBox"></div></div>
   <div class="box"><b style="color:var(--gold)">Saman aaya (+)</b>
-    <div class="r"><select id="iGrp"><option value="">Kya aaya?</option>${GORD.map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="iItem" disabled><option value="">Pehle group chunein</option></select><input id="iPacks" type="number" step="any" min="0" placeholder="Kitne pack"><input id="iQty" type="number" step="any" min="0" placeholder="ya kul miqdar"><input id="iAmt" type="number" min="0" placeholder="Kitne Rs (zaroori)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
+    <div class="r"><select id="iItem"><option value="">Kya aaya? (chunein)</option>${(() => {
+      const st = { out: '⛔ khatam', low: '⚠ kam' }, short = items.filter(i => i.status === 'out' || i.status === 'low').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1) || a.name.localeCompare(b.name));
+      const o = i => `<option value="${i.id}">${esc(i.name)} (${i.unit})${st[i.status] ? ' · ' + st[i.status] : ''}</option>`;
+      return (short.length ? `<optgroup label="⚠ Pehle ye: kam / khatam (${short.length})">${short.map(o).join('')}</optgroup>` : '')
+        + GORD.map(g => `<optgroup label="${esc(g)}">${items.filter(i => (i.grp || 'Dusra') === g && !st[i.status]).map(o).join('')}</optgroup>`).join('');
+    })()}</select><input id="iPacks" type="number" step="any" min="0" placeholder="Kitne pack"><input id="iQty" type="number" step="any" min="0" placeholder="ya kul miqdar"><input id="iAmt" type="number" min="0" placeholder="Kitne Rs (zaroori)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
     <small style="color:var(--mute)" id="iHint">Pack size set ho to sirf "Kitne pack" likhein (maslan 3), kg khud ban jayenge. Rs likhna zaroori hai, ye Kharcha mein bhi khud darj ho jata hai aur saman ka rate bhi update hota hai.</small></div>
   <div class="box"><b style="color:var(--gold)">Shuru ka stock / sab ki ginti (aik saath)</b>
     <small style="color:var(--mute)">Jo saman abhi dukaan mein hai us ki miqdar likhein (kg / litre / piece). Khali chhorein to wo item nahi badlega.</small>
@@ -331,7 +336,6 @@ async function viewStock() {
       w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
     };
   });
-  $('#iGrp').onchange = () => { const g = $('#iGrp').value; $('#iItem').disabled = !g; $('#iItem').innerHTML = g ? grpItems(items, g, []) : '<option value="">Pehle group chunein</option>'; };
   const iHint = () => { const it = byId[$('#iItem').value], n = +$('#iPacks').value, q = +$('#iQty').value;
     $('#iHint').textContent = !it ? '' : n > 0 && it.pack_size ? `${n} ${it.pack_name || 'pack'} = ${qtyTxt(it, n * it.pack_size)} stock mein judega`
       : q > 0 ? `${qtyTxt(it, q)} stock mein judega` : it.pack_size ? `1 ${it.pack_name || 'pack'} = ${qtyTxt(it, it.pack_size)}. "Kitne pack" likhein, ya kul ${it.unit} likhein.` : `Is ka pack size nahi. Kul ${it.unit} likhein.`;
@@ -404,6 +408,7 @@ const FIELDS = [
   ['service_charge_enabled', 'Dine-in par service charges ka option', 'check'],
   ['service_charge_type', 'Service charge type', 'select', [['percent', 'Percent %'], ['fixed', 'Fixed Rs']]],
   ['service_charge_value', 'Service charge value', 'number'],
+  ['stock_alert_days', 'Stock alert: itne din ya kam ka saman bache to peela (kam se kam 3)', 'number'],
   ['dine_tables', 'Dine-in tables kitne hain (order par table number ke button)', 'number'],
   ['delivery_cost_assumed', 'Delivery ka kharcha farz (Rs) · recipe ki lagat mein', 'number'],
   ['Order ke baad cartoon', null],
