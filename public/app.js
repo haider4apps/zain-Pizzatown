@@ -166,7 +166,8 @@ function pzIndex() {   // pizza variant id -> {name,size,grp}
   return ix;
 }
 const pzCfg = () => { try { return JSON.parse(settings.pizza_upgrade || '{}'); } catch (e) { return {}; } };
-const pzTops = () => String(settings.pizza_toppings || '100,200,300').split(',').map(Number).filter(x => x > 0);
+// har pizza par sirf us ki apni topping: Pure 100, Elite 200, Premium M 200 / L 300
+const pzRule = (grp, size) => { try { return +((JSON.parse(settings.pizza_topping_rules || '{}')[grp] || {})[size]) || 0; } catch (e) { return 0; } };
 function pzNew(v) {
   if (v.slots && v.slots.length) return { deal: true, s: v.slots.map(x => ({ size: x.size, vid: x.def, top: 0 })) };
   if (pzIndex()[v.id]) return { deal: false, s: [{ top: 0 }] };
@@ -178,9 +179,10 @@ const pzCharge = l => (l.pz ? l.pz.s.reduce((t, s) => t + (l.pz.deal ? pzUp(s) :
 function pzDecorate(d, l) {
   if (!l.pz) return;
   const ix = pzIndex(), box = el('div', 'pzbox');
-  const tops = s => { const r = el('div', 'pztops'); pzTops().forEach(v => { const t = el('button', 'pztp' + (s.top === v ? ' on' : ''), '+' + v); t.onclick = () => { s.top = s.top === v ? 0 : v; renderCart(); }; r.appendChild(t); }); return r; };
+  const tops = (s, p) => { const r = el('div', 'pztops'), v = p ? pzRule(p.grp, p.size) : 0; if (!v) return r;
+    const t = el('button', 'pztp' + (s.top ? ' on' : ''), `${s.top ? '✓ ' : ''}Extra topping +${v}`); t.onclick = () => { s.top = s.top ? 0 : v; renderCart(); }; r.appendChild(t); return r; };
   if (!l.pz.deal) {
-    const row = el('div', 'pzrow', '<span class="pzlbl">Extra topping</span>'); row.appendChild(tops(l.pz.s[0])); box.appendChild(row);
+    const row = el('div', 'pzrow'); row.appendChild(tops(l.pz.s[0], ix[l.variant_id])); box.appendChild(row);
   } else {
     const sum = l.pz.s.map(s => `${SZN[s.size] || s.size}: <b>${esc((ix[s.vid] || {}).name || '?')}</b>${pzUp(s) ? ' <i>+' + pzUp(s) + '</i>' : ''}${s.top ? ' <i>Topping +' + s.top + '</i>' : ''}`).join(' · ');
     const head = el('button', 'pzhead' + (l.pzOpen ? ' open' : ''), `<span>🍕 ${sum}</span><span class="pzbtn">${l.pzOpen ? 'Band ▴' : 'Flavour / Topping ▾'}</span>`);
@@ -189,10 +191,10 @@ function pzDecorate(d, l) {
     if (l.pzOpen) l.pz.s.forEach(s => {
       const row = el('div', 'pzslot'), up = pzUp(s);
       const fb = el('button', 'pzfl' + (up ? ' up' : ''), `<small>${SZN[s.size] || s.size} Pizza</small> <b>${esc((ix[s.vid] || {}).name || '?')}</b>${up ? ' <i>+' + up + '</i>' : ''} ▾`);
-      fb.onclick = () => pzPick(l, s); row.appendChild(fb); row.appendChild(tops(s)); box.appendChild(row);
+      fb.onclick = () => pzPick(l, s); row.appendChild(fb); row.appendChild(tops(s, ix[s.vid])); box.appendChild(row);
     });
   }
-  d.querySelector('.l3').before(box);
+  d.appendChild(box);
 }
 function pzPick(l, s) {
   const ix = pzIndex(), cfg = pzCfg()[s.size] || {}, groups = {};
@@ -200,7 +202,7 @@ function pzPick(l, s) {
   const m = el('div', 'modal on'), sh = el('div', 'sheet pzsheet');
   sh.innerHTML = `<h3>${SZN[s.size] || s.size} Pizza ka flavour</h3>` + Object.entries(groups).map(([g, list]) => `<div class="pzg">${esc(g)} ${cfg[g] ? '<span>+Rs ' + cfg[g] + '</span>' : '<span class="f">same price</span>'}</div>
     <div class="pzgrid">${list.map(x => `<button class="pzopt${x.vid === s.vid ? ' on' : ''}" data-v="${x.vid}">${esc(x.name)}</button>`).join('')}</div>`).join('') + '<button class="btn pzclose">Band karein</button>';
-  sh.onclick = e => { const b = e.target.closest('.pzopt'); if (b) { s.vid = +b.dataset.v; m.remove(); renderCart(); } else if (e.target.closest('.pzclose')) m.remove(); };
+  sh.onclick = e => { const b = e.target.closest('.pzopt'); if (b) { s.vid = +b.dataset.v; if (s.top) { const p = pzIndex()[s.vid]; s.top = p ? pzRule(p.grp, p.size) : 0; } m.remove(); renderCart(); } else if (e.target.closest('.pzclose')) m.remove(); };
   m.onclick = e => { if (e.target === m) m.remove(); };
   m.appendChild(sh); document.body.appendChild(m);
 }
@@ -217,20 +219,14 @@ function renderCart() {
     const d = el('div', 'line');
     d.innerHTML = `<div class="l1"><span>${esc(l.name)}${l.label ? ' <small style="color:var(--mute)">(' + esc(l.label) + ')</small>' : ''}</span><span>${money(lineAmt(l))}</span></div>
       <div class="l2"><div class="qty"><button data-a="-">−</button><span>${l.qty}</span><button data-a="+">+</button></div>
-      <input class="note" placeholder="Note (kam mirch, bina pyaaz...)" value="${esc(l.note)}"></div>
-      <div class="l3"><input class="extra" placeholder="+ Extras (extra cheese, extra drink...)" value="${esc(l.extras || '')}"><input class="xp" type="number" min="0" inputmode="numeric" placeholder="Rs" value="${l.extras_price || ''}"></div>`;
+      <input class="note" placeholder="Note (kam mirch, bina pyaaz...)" value="${esc(l.note)}"></div>`;
     d.querySelectorAll('button').forEach(b => b.onclick = () => {
       l.qty += b.dataset.a === '+' ? 1 : -1;
       if (l.qty <= 0) cart.splice(idx, 1);
       renderCart();
     });
     d.querySelector('.note').oninput = e => (l.note = e.target.value);
-    d.querySelector('.extra').oninput = e => (l.extras = e.target.value);
-    d.querySelector('.xp').oninput = e => {
-      l.extras_price = Math.max(0, parseInt(e.target.value) || 0);
-      d.querySelector('.l1 span:last-child').textContent = money(lineAmt(l));
-      $('#cartTotal').textContent = money(cartTotal()); $('#barTotal').textContent = money(cartTotal());
-    };
+
     pzDecorate(d, l);
     body.appendChild(d);
   });
@@ -336,6 +332,7 @@ async function placeOrder() {
       payment: co.payment, gift_by: co.gift_by, note: co.note, slip_lang: co.slip_lang, no_print: !!co.no_print,
       items: cart.map(l => l.keep ? { keep: l.keep, qty: l.qty, note: l.note, extras: l.extras, extras_price: l.extras_price || 0, pz: pzSend(l) } : { variant_id: l.variant_id, qty: l.qty, note: l.note, extras: l.extras, extras_price: l.extras_price || 0, pz: pzSend(l) }) } });
     const wasEdit = editing ? editing.order_no : 0;
+    if (!wasEdit && window.funAfterOrder) try { funAfterOrder(o, settings); } catch (e) {}
     cart = []; co = null; editing = null;
     $('#coModal').classList.remove('on'); $('#cart').classList.remove('open');
     renderCart();

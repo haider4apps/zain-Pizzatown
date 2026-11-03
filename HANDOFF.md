@@ -43,3 +43,4 @@ Chrome kiosk app: tray "Open POS" or `start.bat` (`--kiosk-printing`). POS has i
   (Raw saman, Packing first) with red short-count; Saman aaya only Raw saman/Packing; Kharcha page no longer adds stock.
   Pack fixes once (`stock_v2b_done`): Maida 50kg, Nuggets 50, F1/F2 = 1.
 - v1.13.0: checkout table buttons (`dine_tables`, default 6); recipe cost: dine-in adds ketchup cost (bottle, not stock), delivery = takeaway + `delivery_cost_assumed` (200); Update button hidden when latest (auto check on Settings); 'Naya saman' box removed.
+- v1.14.0/1.15.0: topping per pizza (`pizza_topping_rules`: Pure 100, Elite 200, Premium M200/L300); cart Extras box removed; menu cost inputs removed, order line cost = recipe x stock rate (lineCost); public/fun.js order cartoons (fun_small/fun_big) + daily sale celebration 30k/40k/50k (server returns `celebrate`), Admin Settings has Animation test buttons.

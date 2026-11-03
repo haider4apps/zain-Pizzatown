@@ -141,7 +141,11 @@ const DEFAULTS = {
   restore_1850_done: '',          // (internal) ghalti se delete hui Deal Rs 1850 aik baar wapas
   pizza_upgrade: '{"M":{"Elite Flavours":100,"Premium Flavours":200},"L":{"Elite Flavours":100,"Premium Flavours":300}}', // deal mein flavour badalne ke paise
   pizza_toppings: '100,200,300',  // extra topping ke button (Rs)
-  dine_tables: '6',               // checkout par table number ke button
+  pizza_topping_rules: '{"Pure Flavours":{"S":100,"M":100,"L":100},"Elite Flavours":{"M":200,"L":200},"Premium Flavours":{"M":200,"L":300}}', // kis pizza par kitne ki topping
+  dine_tables: '6',
+  fun_enabled: '1',               // order ke baad cartoon / sale ka jashn
+  fun_small: '1000',              // itne tak chhota order
+  fun_big: '3000',                // is se upar bara order               // checkout par table number ke button
   delivery_cost_assumed: '200',   // recipe ki lagat: delivery = takeaway + itna (rider/petrol)
   stock_v2_done: '',
   stock_v2b_done: '',             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
@@ -364,6 +368,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ---------- stock ----------
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = n => Math.round(n * 100) / 100;
+// 1 line (1 qty) ki lagat Rs: saman x rate. Dine-in mein ketchup bottle ka kharcha sachet jitna
+function lineCost(vid, pz, type) {
+  try {
+    const rate = Object.fromEntries(db.prepare('select id,rate,name from stock_items').all().map(i => [i.id, i]));
+    const sum = tot => Object.entries(tot).reduce((t, [id, q]) => t + q * ((rate[id] || {}).rate || 0), 0);
+    let c = sum(stockNeed([{ vid, qty: 1, pz }], type));
+    if (type === 'dinein') { const k = Object.values(rate).find(i => i.name === 'Ketchup Sachet'); const a = stockNeed([{ vid, qty: 1, pz }], 'takeaway'); if (k && a[k.id]) c += a[k.id] * (k.rate || 0); }
+    return Math.round(c);
+  } catch (e) { return 0; }
+}
 // Kis order line se kaunsa saman kitna minus ho (deal ke hisse, pizza flavour, Dough ka saman, takeaway packing)
 function stockNeed(lines, type, direct) {
   const Q = {
@@ -473,7 +487,7 @@ function calcOrder(b, S, keepItems) {
       const z = pzApply(PZ, k.variant_id, it.pz !== undefined ? it.pz : (old ? old.s : null), qty);
       if (z.err) return z;
       const mx = it.pz !== undefined ? extras : (old ? old.mx : extras), mp = it.pz !== undefined ? ep : (old ? old.mp : ep);
-      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note, ...pzMerge(z, mx, mp), vid: k.variant_id || null });
+      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note, ...pzMerge(z, mx, mp), vid: k.variant_id || null, kept: true });
       continue;
     }
     const v = getV.get(it.variant_id);
@@ -483,6 +497,8 @@ function calcOrder(b, S, keepItems) {
     if (z.err) return z;
     lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note, ...pzMerge(z, extras, ep), vid: v.id });
   }
+  // Lagat recipe + stock rate se (naye items); recipe/rate na ho to purani menu cost
+  lines.forEach(l => { if (l.vid && !l.kept) { const c = lineCost(l.vid, l.pz, type); if (c > 0) l.cost = c; } });
   const subtotal = lines.reduce((s, l) => s + l.price * l.qty + l.ep, 0);
   const cost = lines.reduce((s, l) => s + l.cost * l.qty, 0);
   const discount = Math.min(int(b.discount), subtotal);
@@ -505,29 +521,31 @@ function parsePz(t) { try { return t ? JSON.parse(t) : null; } catch (e) { retur
 function pzContext(S) {
   let up = {}; try { up = JSON.parse(S.pizza_upgrade || '{}'); } catch (e) {}
   const tops = String(S.pizza_toppings || '').split(',').map(x => int(x)).filter(x => x > 0);
+  let rules = {}; try { rules = JSON.parse(S.pizza_topping_rules || '{}'); } catch (e) {}
   const pizzas = {};   // variant id -> {name,size,grp}
   db.prepare(`select v.id,v.label,i.name,i.grp from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id
     where lower(c.name) like '%pizza%' and c.deleted=0 and i.deleted=0 and v.deleted=0 and i.active=1 and v.active=1`).all()
     .forEach(r => (pizzas[r.id] = { name: r.name, size: r.label, grp: r.grp }));
-  return { up, tops, pizzas, slots: db.prepare("select part_vid d, slot from deal_parts where variant_id=? and slot!='' order by id") };
+  return { up, tops, rules, pizzas, slots: db.prepare("select part_vid d, slot from deal_parts where variant_id=? and slot!='' order by id") };
 }
 // pz = [{vid, top}] (deal ke har pizza ke liye) ya [{top}] (akela pizza). Paise server khud ginta hai.
 function pzApply(C, vid, pz, qty) {
   const none = { s: null, text: '', charge: 0 };
   if (!vid || !Array.isArray(pz)) return none;
-  const top = t => (C.tops.includes(int(t)) ? int(t) : 0);
+  // topping: har pizza par sirf us ki apni qeemat (Pure 100, Elite 200, Premium M 200 / L 300)
+  const top = (t, p) => { if (!int(t) || !p) return 0; const a = int(((C.rules[p.grp] || {})[p.size]) || 0); return a || (C.tops.includes(int(t)) ? int(t) : 0); };
   const slots = C.slots.all(vid);
   let charge = 0; const s = [], txt = [];
   if (slots.length) {
     slots.forEach((sl, i) => {
       const want = pz[i] || {}, p = C.pizzas[int(want.vid)];
       const pv = p && p.size === sl.slot ? int(want.vid) : sl.d, pp = C.pizzas[pv] || { name: '?', grp: '' };
-      const up = int(((C.up[sl.slot] || {})[pp.grp]) || 0), t = top(want.top);
+      const up = int(((C.up[sl.slot] || {})[pp.grp]) || 0), t = top(want.top, { grp: pp.grp, size: sl.slot });
       charge += up + t; s.push({ vid: pv, size: sl.slot, name: pp.name, up, top: t });
       txt.push(`${SZ_NAME[sl.slot] || sl.slot}: ${pp.name}${up ? ' (+' + up + ')' : ''}${t ? ' + Topping (+' + t + ')' : ''}`);
     });
   } else if (C.pizzas[vid]) {
-    const t = top((pz[0] || {}).top);
+    const t = top((pz[0] || {}).top, C.pizzas[vid]);
     if (!t) return none;
     charge = t; s.push({ top: t }); txt.push('Extra Topping (+' + t + ')');
   } else return none;
@@ -571,7 +589,14 @@ app.post('/api/orders', (req, res) => {
     const sync = syncOn();
     const id = db.transaction(() => insertOrder(b, calc, S, null))();
     if (sync) syncSoon();
-    res.json(publicOrder(loadOrder(id)));
+    const out = publicOrder(loadOrder(id));
+    // aaj ki sale ne 30k/40k/50k paar kiya? (sirf hadd ka number bhejte hain, kul sale nahi)
+    try {
+      const sum = db.prepare("select coalesce(sum(total),0) t from orders where business_date=? and status='done'").get(out.business_date).t;
+      const hit = [50000, 40000, 30000].find(m => sum >= m && sum - out.total < m);
+      if (hit) out.celebrate = hit;
+    } catch (e) {}
+    res.json(out);
   } catch (e) { console.error(e); res.status(500).json({ error: e.message }); }
 });
 
@@ -984,7 +1009,7 @@ admin.get('/report', (req, res) => {
   const dayList = Object.values(days).sort((a, b) => (a.d < b.d ? 1 : -1)).map(x => ({ ...x, net: x.profit - x.expenses }));
   res.json({
     from, to, now: businessDate(), totals, days: dayList,
-    missing_cost: db.prepare('select count(*) n from variants v join items i on i.id=v.item_id where v.active=1 and i.active=1 and v.deleted=0 and i.deleted=0 and v.price>0 and v.cost<=0').get().n,
+    missing_cost: db.prepare('select count(*) n from stock_items s where s.active=1 and s.is_prep=0 and coalesce(s.rate,0)<=0 and (s.id in (select item_id from recipes) or s.id in (select item_id from prep_recipes))').get().n,
     by_type: db.prepare(`select type, count(*) n, sum(total) total, sum(profit) profit from orders where ${W} group by type`).all(...A),
     gifts: db.prepare(`select coalesce(gift_by,'-') by_whom, count(*) n, sum(subtotal) value, sum(cost) cost from orders where ${W} and payment='Gift' group by gift_by`).all(...A),
     by_payment: db.prepare(`select payment, count(*) n, sum(total) total from orders where ${W} group by payment`).all(...A),

@@ -57,20 +57,19 @@ async function viewMenu() {
   <div class="box">
     <div class="r"><select id="catSel">${menu.map(m => `<option value="${m.id}" ${m.id === catId ? 'selected' : ''}>${esc(m.name)}${m.active ? '' : ' (hidden)'}</option>`).join('')}</select>
       <button class="btn s" data-act="addcat">+ New section</button></div>
-    <div style="color:var(--mute);font-size:13px">Har size ki 2 rakmain: pehli = <b>Price</b> (customer se), doosri = <b>Cost</b> (lagat). Cost sirf admin ko nazar aati hai. Laal box = cost abhi nahi daali.</div>
+    <div style="color:var(--mute);font-size:13px">Har size ki <b>Price</b> (customer se). Lagat (cost) recipe aur stock ke rate se khud nikalti hai (Stock → Recipe).</div>
     ${c ? `<div class="r">${inp('categories', c.id, 'name', c.name, 'Section name')}${inp('categories', c.id, 'name_ur', c.name_ur, 'Urdu name')}
       <label class="s"><input type="checkbox" data-k="categories" data-id="${c.id}" data-f="active" ${c.active ? 'checked' : ''}> Show</label></div>` : ''}
   </div>
   ${c ? `<div class="box"><b style="color:var(--gold)">Naya item add karein (${esc(c.name)})</b>
     <div class="r"><input id="nName" placeholder="Item name (e.g. Pepsi)"><input id="nGrp" placeholder="Group (optional)"><input id="nDet" placeholder="Details (optional)"></div>
-    <div class="r"><input id="nLabel" placeholder="Size label (e.g. 500ml, L)"><input id="nPrice" type="number" min="0" placeholder="Price"><input id="nCost" type="number" min="0" placeholder="Cost (lagat)"><button class="btn gold s" data-act="additem">+ Add item</button></div></div>
+    <div class="r"><input id="nLabel" placeholder="Size label (e.g. 500ml, L)"><input id="nPrice" type="number" min="0" placeholder="Price"><button class="btn gold s" data-act="additem">+ Add item</button></div></div>
   ${c.items.map(i => `<div class="item ${i.active ? '' : 'off'}">
     <div class="r">${inp('items', i.id, 'name', i.name, 'Name')}${inp('items', i.id, 'grp', i.grp, 'Group')}${inp('items', i.id, 'details', i.details, 'Details')}
       <label class="s"><input type="checkbox" data-k="items" data-id="${i.id}" data-f="active" ${i.active ? 'checked' : ''}> Available</label></div>
     ${i.variants.map(v => `<div class="vrow">
       <input type="text" data-k="variants" data-id="${v.id}" data-f="label" value="${esc(v.label)}" placeholder="Size (S / M / L / 500ml)">
       <input type="number" min="0" title="Sale price" data-k="variants" data-id="${v.id}" data-f="price" value="${v.price}" placeholder="Price">
-      <input type="number" min="0" title="Cost (lagat)" data-k="variants" data-id="${v.id}" data-f="cost" value="${v.cost || 0}" placeholder="Cost" style="${v.price > 0 && !v.cost ? 'outline:2px solid var(--red)' : ''}">
       <label><input type="checkbox" data-k="variants" data-id="${v.id}" data-f="active" ${v.active ? 'checked' : ''}> On</label></div>`).join('')}
     <div><button class="btn" data-act="addvar" data-id="${i.id}">+ Size / price</button></div></div>`).join('') || '<div class="box">Is section mein abhi koi item nahi</div>'}` : ''}
   ${tn ? '' : '<!--'}<div class="box"><b style="color:var(--mute)">Delete kiye hue (${tn})</b>
@@ -99,7 +98,7 @@ async function viewMenu() {
     if (a === 'addvar') { await A(`/items/${id}/variants`, 'POST', { label: '', price: 0 }); viewMenu(); }
     if (a === 'additem') {
       const name = $('#nName').value.trim(); if (!name) return toast('Item ka naam likhein');
-      await A('/items', 'POST', { category_id: catId, name, grp: $('#nGrp').value, details: $('#nDet').value, variants: [{ label: $('#nLabel').value, price: $('#nPrice').value || 0, cost: $('#nCost').value || 0 }] });
+      await A('/items', 'POST', { category_id: catId, name, grp: $('#nGrp').value, details: $('#nDet').value, variants: [{ label: $('#nLabel').value, price: $('#nPrice').value || 0, cost: 0 }] });
       toast('Item add ho gaya ✓'); viewMenu();
     }
   });
@@ -123,7 +122,7 @@ async function viewSales() {
     <div class="stat"><small>Service charges</small><b>${money(t.service)}</b></div>
     <div class="stat"><small>Cost (lagat)</small><b>${money(t.cost)}</b></div><div class="stat"><small>Profit (items)</small><b>${money(t.profit)}</b></div>
     <div class="stat"><small>Kharcha</small><b>${money(t.expenses)}</b></div><div class="stat"><small>Net profit</small><b style="color:${t.net < 0 ? 'var(--red)' : 'var(--gold)'}">${money(t.net)}</b></div></div>
-  ${r.missing_cost ? `<div class="box" style="border-color:var(--red)">⚠ ${r.missing_cost} items/sizes ki cost 0 hai - un ka profit galat (zyada) dikhega. Menu &amp; Prices mein cost daalein.</div>` : ''}
+  ${r.missing_cost ? `<div class="box" style="border-color:var(--red)">⚠ ${r.missing_cost} items/sizes saman ka rate abhi nahi - un ki lagat 0 ginti hai aur profit zyada dikhega. Stock mein "Saman aaya" ke saath Rs likhein ya Rate daalein.</div>` : ''}
   <div class="box"><b>Din ba din</b>${tbl(['Date', 'Orders', 'Sale', 'Cost', 'Profit', 'Kharcha', 'Net'], r.days.map(d => [d.d, d.n, money(d.total), money(d.cost), money(d.profit), money(d.expenses), money(d.net)]))}</div>
   <div class="box"><b>Order type</b>${tbl(['Type', 'Orders', 'Amount'], r.by_type.map(x => [TYPES[x.type], x.n, money(x.total)]))}
     <b>Payment</b>${tbl(['Method', 'Orders', 'Amount'], r.by_payment.map(x => [x.payment === 'Gift' ? 'Gift / Free' : x.payment, x.n, money(x.total)]))}
@@ -379,6 +378,10 @@ const FIELDS = [
   ['service_charge_value', 'Service charge value', 'number'],
   ['dine_tables', 'Dine-in tables kitne hain (order par table number ke button)', 'number'],
   ['delivery_cost_assumed', 'Delivery ka kharcha farz (Rs) · recipe ki lagat mein', 'number'],
+  ['Order ke baad cartoon', null],
+  ['fun_enabled', 'Order ke baad cartoon aur sale ka jashn (30k / 40k / 50k)', 'check'],
+  ['fun_small', 'Chhota order: itne Rs tak', 'number'],
+  ['fun_big', 'Bara order: is Rs se upar (beech wala darmiyana)', 'number'],
   ['Printing', null],
   ['paper_mm', 'Paper width', 'select', [['80', '80 mm'], ['58', '58 mm']]],
   ['slip_weight', 'Slip ke likhai ki motai (ink phail rahi ho to Patla)', 'select', [['thin', 'Patla (default)'], ['normal', 'Darmiyana'], ['bold', 'Mota (purana)']]],
@@ -406,6 +409,8 @@ async function viewSettings() {
   }).join('') + `<button class="btn gold" id="saveS">Save settings</button>
   <button class="btn" id="pvS">Slip preview (aakhri order ki)</button>
   <div class="box" id="syncBox" style="background:var(--panel2)">Sheet sync check ho raha hai...</div>
+  <div class="box" style="background:var(--panel2)"><b style="color:var(--gold)">Animation test (sirf dekhne ke liye, koi order nahi banta)</b>
+    <div class="r">${[['small', 'Chhota order'], ['medium', 'Darmiyana order'], ['big', 'Bara order'], ['30000', 'Sale 30,000'], ['40000', 'Sale 40,000'], ['50000', 'Sale 50,000']].map(([k, t]) => `<button class="btn s" data-fun="${k}">${t}</button>`).join('')}</div></div>
   <div class="box" id="updBox" style="background:var(--panel2)"><b style="color:var(--gold)">Software update (GitHub)</b><div id="updInfo">...</div>
     <div class="r"><button class="btn s" id="updCheck">Check for update</button><button class="btn gold s" id="updGo" style="display:none">Update karein</button></div></div>
   <div style="color:var(--mute);font-size:13px">Mobile se order lene ke liye PC aur mobile aik hi WiFi par hon, aur mobile ke browser mein PC ka address kholen (server ki black window mein "Mobile par:" ke aage likha hota hai).</div></div>`;
@@ -428,6 +433,7 @@ async function viewSettings() {
       $('#updGo').style.display = u.behind ? '' : 'none';   // latest ho to Update ka button gaib
     } catch (e) { $('#updInfo').textContent = verTxt + (quiet ? '' : ' · ' + e.message); }
   };
+  view.querySelectorAll('[data-fun]').forEach(b => (b.onclick = () => window.funShow && funShow(b.dataset.fun)));
   $('#updCheck').onclick = () => guard(() => check(false));
   check(true);   // Settings khulte hi khud check
   $('#updGo').onclick = () => guard(async () => {
