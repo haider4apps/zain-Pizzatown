@@ -90,7 +90,8 @@ addCol('stock_items', 'pack_name', "text default ''");
 addCol('stock_items', 'is_prep', 'integer default 0');   // Dough: apna stock nahi, is ka saman minus hota hai
 addCol('stock_items', 'prep_yield', 'real default 0');   // 1 batch ka wazan (g)
 addCol('recipes', 'away', 'integer default 0');
-addCol('stock_items', 'rate', 'real default 0');         // Rs per unit (kg/litre/piece), aakhri "Saman aaya" se          // 1 = sirf takeaway/delivery par (packing)
+addCol('stock_items', 'rate', 'real default 0');
+addCol('stock_items', 'alert_state', "text default ''");  // aakhri dafa Sheet ko kya bataya (low/out)         // Rs per unit (kg/litre/piece), aakhri "Saman aaya" se          // 1 = sirf takeaway/delivery par (packing)
 addCol('order_items', 'pz', "text default ''");          // deal ke pizza flavour + topping
 db.exec(`
 create table if not exists prep_recipes(prep_id integer not null, item_id integer not null, qty real not null, primary key(prep_id,item_id));
@@ -433,6 +434,23 @@ function stockList() {
       sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0 };
   });
 }
+// Stock kam / khatam / wapas theek hua: Events mein line (Google Sheet ke "Stock Alerts" tab mein laal / peela / hara)
+function stockAlertCheck() {
+  try {
+    const set = db.prepare('update stock_items set alert_state=? where id=?');
+    stockList().forEach(i => {
+      const was = db.prepare('select alert_state a from stock_items where id=?').get(i.id).a || '';
+      const now = i.status === 'out' || i.status === 'low' ? i.status : '';
+      if (now === was) return;
+      set.run(now, i.id);
+      const q = qtyTxtSrv(i);
+      if (now === 'out') logEvent('stock', `KHATAM: ${i.name} - stock khatam (${q})`);
+      else if (now === 'low') logEvent('stock', `KAM: ${i.name} - sirf ${q} bacha${i.days !== null ? ' (~' + Math.max(0, Math.floor(i.days)) + ' din)' : ''}`);
+      else if (i.status === 'ok' && was) logEvent('stock', `THEEK: ${i.name} - stock aa gaya (${q})`);
+    });
+  } catch (e) { console.error('stock alert', e.message); }
+}
+const qtyTxtSrv = i => (i.sub_per && Math.abs(i.bal) < 1 ? `${Math.round(i.bal * i.sub_per)} ${i.sub_unit}` : `${+(+i.bal).toFixed(2)} ${i.unit}`);
 app.get('/api/stock/alerts', (req, res) => {
   try {
     const list = stockList(), by = Object.fromEntries(list.map(i => [i.id, i]));
@@ -574,6 +592,7 @@ function insertOrder(b, calc, S, replaces) {
   const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price,variant_id,pz) values(?,?,?,?,?,?,?,?,?,?,?,?)');
   lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras, l.ep, l.vid || null, l.pz || ''));
   try { stockOut(oid, lines, bd, type); } catch (e) { console.error('stock', e.message); }
+  setImmediate(stockAlertCheck);
   const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
   db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
   if (b.no_print) db.prepare('update orders set printed=1 where id=?').run(oid);   // is order ki slip nahi nikalni
@@ -616,7 +635,7 @@ app.put('/api/orders/:id', (req, res) => {
     if (calc.gift && S.gift_needs_pin === '1' && !pinOk) return res.status(403).json({ error: 'Gift ke liye Admin PIN chahiye', code: 'GIFT_PIN' });
     const late = editLeft(o) <= 0;
     const nid = db.transaction(() => {
-      db.prepare("update orders set status='cancelled' where id=?").run(o.id);
+      db.prepare("update orders set status='cancelled' where id=?").run(o.id); setImmediate(stockAlertCheck); setImmediate(stockAlertCheck);
       if (o.queued) enqueueOrder(o, true);            // purani entry ki ulti (reversal) Sheet mein
       const id = insertOrder(b, calc, S, o.order_no);  // naya order, naya number
       const n = loadOrder(id);
@@ -835,6 +854,7 @@ admin.post('/stock/count-bulk', (req, res) => {
     const diff = r2(num(r.count) - cur[int(r.item_id)]);
     if (diff !== 0) { db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'adjust',?,?,?)").run(int(r.item_id), diff, bd, `Ginti: ${cur[int(r.item_id)]} -> ${num(r.count)}`, now); n++; }
   }))();
+  stockAlertCheck(); syncSoon();
   res.json({ ok: true, changed: n });
 });
 admin.post('/stock/items', (req, res) => {
@@ -852,6 +872,7 @@ admin.put('/stock/items/:id', (req, res) => {
   const b = req.body || {};
   if (b.min_level !== undefined) db.prepare('update stock_items set min_level=? where id=?').run(Math.max(0, num(b.min_level)), req.params.id);
   if (b.unit) db.prepare('update stock_items set unit=? where id=?').run(String(b.unit).slice(0, 12), req.params.id);
+  if (b.min_level !== undefined) setImmediate(stockAlertCheck);
   if (b.rate !== undefined) db.prepare('update stock_items set rate=? where id=?').run(Math.max(0, num(b.rate)), req.params.id);
   if (b.pack_size !== undefined) db.prepare('update stock_items set pack_size=?, pack_name=? where id=?').run(Math.max(0, num(b.pack_size)), String(b.pack_name || '').slice(0, 30), req.params.id);
   res.json({ ok: true });
@@ -898,7 +919,7 @@ admin.post('/stock/in', (req, res) => {
     db.prepare("insert into stock_moves(item_id,qty,kind,expense_id,date,note,created_at) values(?,?,'in',?,?,?,?)").run(it.id, qty, eid, date, amount > 0 ? `Rs ${amount}` : '', now);
     if (amount > 0) db.prepare('update stock_items set rate=? where id=?').run(amount / qty, it.id);   // nayi qeemat
   })();
-  syncSoon();
+  syncSoon(); stockAlertCheck();
   res.json({ ok: true });
 });
 // Ginti: asal bacha hua likhein, farq khud adjust ho jata hai
@@ -908,6 +929,7 @@ admin.post('/stock/count', (req, res) => {
   if (b.count === '' || b.count == null || num(b.count) < 0) return res.status(400).json({ error: 'Bacha hua likhein' });
   const cur = stockList().find(x => x.id === it.id).bal, diff = r2(num(b.count) - cur);
   if (diff !== 0) db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'adjust',?,?,?)").run(it.id, diff, businessDate(), `Ginti: ${cur} -> ${num(b.count)}`, fmtDT(new Date()));
+  stockAlertCheck(); syncSoon();
   res.json({ ok: true });
 });
 admin.get('/recipes', (req, res) => {
@@ -1187,7 +1209,7 @@ function seedStockV2() {
         });
       });
     })();
-    logEvent('stock', 'Stock v2: recipes, Dough aur deals ke hisse lag gaye' + (miss.length ? '. Nahi mile: ' + miss.join(', ') : ''));
+    logEvent('setting', 'Stock v2: recipes, Dough aur deals ke hisse lag gaye' + (miss.length ? '. Nahi mile: ' + miss.join(', ') : ''));
     if (miss.length) console.log('Stock v2 - nahi mile:', miss.join(' ; '));
     setSetting('stock_v2_done', now);
   } catch (e) { console.error('stock v2:', e.message); }
