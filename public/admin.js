@@ -241,6 +241,28 @@ function countDialog(it, done) {
   });
   (ov.querySelector('#cdP') || ov.querySelector('#cdQ')).focus();
 }
+// Pack size badalna khatarnak hai (stock ka hisaab bigar jata hai): bara warning + har dafa Admin PIN
+function packDialog(ds) {
+  const ov = document.createElement('div');
+  ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:60;padding:12px';
+  ov.innerHTML = `<div class="box" style="max-width:460px;width:100%;border:3px solid #e53935">
+    <div style="background:#e53935;color:#fff;font-weight:900;font-size:20px;text-align:center;padding:10px;border-radius:8px">⚠ PACK SIZE BADAL RAHE HAIN</div>
+    <div style="font-size:16px;line-height:1.5"><b>Stock daalna hai?</b> To ye button nahi, item ke aage <b>"Ginti"</b> par click karein, ya <b>"Saman aaya"</b> se daalein.<br>
+    Pack size badalne se <b>${esc(ds.n)}</b> ka hisaab (pack mein kitna aata hai) <b style="color:#ff8a80">kharab ho jayega</b>. Sirf tab badlein jab company ne pack hi badal diya ho.</div>
+    <div>Abhi: <b>1 ${esc(ds.pn || 'Pack')} = ${ds.p || '?'} ${esc(ds.u)}</b></div>
+    <label>1 pack mein kitne ${esc(ds.u)}?<input id="pkS" type="number" step="any" min="0" value="${ds.p}"></label>
+    <label>Pack ka naam<input id="pkN" value="${esc(ds.pn || 'Pack')}"></label>
+    <label>Admin PIN (har dafa zaroori)<input id="pkP" type="password" inputmode="numeric"></label>
+    <div class="r"><button class="btn" id="pkNo">Nahi, wapas</button><button class="btn red s" id="pkOk" style="background:#c62828;color:#fff">Haan, pack size badlein</button></div></div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#pkNo').onclick = () => ov.remove();
+  ov.onclick = e => { if (e.target === ov) ov.remove(); };
+  ov.querySelector('#pkOk').onclick = () => guard(async () => {
+    const pin = ov.querySelector('#pkP').value.trim(); if (!pin) throw new Error('Admin PIN likhein');
+    await A('/stock/items/' + ds.id, 'PUT', { pack_size: ov.querySelector('#pkS').value, pack_name: ov.querySelector('#pkN').value, confirm_pin: pin });
+    ov.remove(); toast('Pack size badal diya ✓'); viewStock();
+  });
+}
 async function viewStock() {
   const [d, rc] = await Promise.all([A('/stock'), A('/recipes')]);
   const items = d.items, preps = d.preps || [], all = items.concat(preps), byId = Object.fromEntries(all.map(i => [String(i.id), i]));
@@ -312,30 +334,55 @@ async function viewStock() {
   });
 
   view.querySelectorAll('details.sg').forEach(d => d.addEventListener('toggle', () => { window._open[d.dataset.g] = d.open; }));
-  $('#dmGo').onclick = () => guard(async () => {
-    const d = await A('/stock/demand?days=' + $('#dmDays').value);
-    const q = (r, v) => (r.sub_per && v < 1 ? Math.round(v * r.sub_per) + ' ' + r.sub_unit : +(+v).toFixed(2) + ' ' + r.unit);
-    const buyTxt = r => (r.packs ? `${r.packs} ${r.pack_name || 'pack'}` : q(r, r.buy));
-    const grps = [...new Set(d.rows.map(r => r.grp))];
-    $('#dmBox').innerHTML = !d.rows.length ? '<div style="color:#8fd19e;margin-top:8px">✓ Is waqt kuch mangwane ki zarurat nahi.</div>' :
-      `<table style="margin-top:8px"><tr><th>Saman</th><th>Mangwana</th><th>Bacha</th><th>Roz ki khapat</th><th>Andazan Rs</th></tr>${grps.map(g => `<tr><td colspan="5" style="color:var(--gold);font-weight:700;padding-top:10px">${esc(g)}</td></tr>` + d.rows.filter(r => r.grp === g).map(r => `<tr class="st-${r.status}"><td>${esc(r.name)}</td><td><b>${buyTxt(r)}</b>${r.packs ? ` <small style="color:var(--mute)">(${q(r, r.buy)})</small>` : ''}</td><td>${q(r, r.bal)}</td><td>${r.per_day ? q(r, r.per_day) : '—'}</td><td>${r.cost ? money(r.cost) : '—'}</td></tr>`).join('')).join('')}</table>
-      <div class="r" style="margin-top:8px"><b style="flex:1">${d.rows.length} cheezein${d.total ? " · andazan " + money(d.total) : ""}</b><button class="btn gold s" id="dmPrint">🖨 Slip print karein</button></div>
-      <small style="color:var(--mute)">${d.days} din ke liye, pichle ${d.based_on} din ki sale ke hisaab se.</small>`;
-    const pb = $('#dmPrint'); if (pb) pb.onclick = () => {
+  // Demand slip: din badalte hi khud dobara banti hai; har line ki miqdar haath se badal sakte hain, hata sakte hain, nayi jor sakte hain
+  let DM = null;
+  const dmQ = (r, v) => (r.sub_per && v < 1 ? Math.round(v * r.sub_per) + ' ' + r.sub_unit : +(+v).toFixed(2) + ' ' + r.unit);
+  const dmUnit = r => (r.pack_size ? (r.pack_name || 'pack') : r.unit);
+  const dmBuy = r => `${+(+r.n).toFixed(2)} ${dmUnit(r)}`;
+  const dmCost = r => (r.rate ? r.n * (r.pack_size || 1) * r.rate : 0);
+  const dmAlertDays = 3;
+  const dmCls = r => (r.bal <= 0 || r.status === 'out' ? 'dm-red' : r.days_left !== null && r.days_left <= dmAlertDays ? 'dm-red' : r.manual ? '' : 'dm-yel');
+  function dmDraw() {
+    const d = DM, rows = d.rows.filter(r => !r.del), grps = [...new Set(rows.map(r => r.grp))];
+    const tot = rows.reduce((t, r) => t + dmCost(r), 0);
+    const left = items.filter(i => !d.rows.some(r => r.id === i.id && !r.del));
+    $('#dmBox').innerHTML = `<table style="margin-top:8px"><tr><th>Saman</th><th>Mangwana (badal sakte hain)</th><th>Bacha</th><th>Kitne din ka bacha</th><th>Roz ki khapat</th><th></th></tr>
+      ${grps.map(g => `<tr><td colspan="6" style="color:var(--gold);font-weight:700;padding-top:10px">${esc(g)}</td></tr>` + rows.filter(r => r.grp === g).map(r => { const k = d.rows.indexOf(r);
+        return `<tr class="${dmCls(r)}"><td>${esc(r.name)}${r.manual ? ' <small style="color:var(--mute)">(haath se)</small>' : ''}</td>
+        <td style="white-space:nowrap"><input class="n dmn" data-k="${k}" type="number" step="any" min="0" value="${+(+r.n).toFixed(2)}" style="max-width:90px"> ${esc(dmUnit(r))}${r.pack_size ? ` <small style="color:var(--mute)">= ${dmQ(r, r.n * r.pack_size)}</small>` : ''}</td>
+        <td>${dmQ(r, r.bal)}</td><td>${r.bal <= 0 ? '<b style="color:#ff8a80">khatam</b>' : r.days_left === null ? '—' : '~' + r.days_left + ' din'}</td><td>${r.per_day ? dmQ(r, r.per_day) : '—'}</td>
+        <td><button class="btn red s" data-dmdel="${k}">✕</button></td></tr>`; }).join('')).join('') || '<tr><td colspan="6" style="color:#8fd19e">✓ Is waqt kuch mangwane ki zarurat nahi.</td></tr>'}</table>
+      <div class="r" style="margin-top:8px"><select id="dmAdd"><option value="">+ Aur saman jorein (list se)...</option>${left.map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('')}</select></div>
+      <div class="r" style="margin-top:8px"><b style="flex:1">${rows.length} cheezein${tot ? ' · andazan ' + money(Math.round(tot)) : ''}</b><button class="btn gold s" id="dmPrint">🖨 Slip print karein</button></div>
+      <small style="color:var(--mute)">Laal = khatam ya ${dmAlertDays} din se kam ka bacha. Peela = ${d.days} din ke andar khatam ho jayega. ${d.days} din ke liye, pichle ${d.based_on} din ki sale ke hisaab se.</small>`;
+    $('#dmBox').querySelectorAll('.dmn').forEach(x => (x.onchange = () => { DM.rows[+x.dataset.k].n = Math.max(0, +x.value || 0); dmDraw(); }));
+    $('#dmBox').querySelectorAll('[data-dmdel]').forEach(x => (x.onclick = () => { DM.rows[+x.dataset.dmdel].del = true; dmDraw(); }));
+    $('#dmAdd').onchange = () => { const i = items.find(x => String(x.id) === $('#dmAdd').value); if (!i) return;
+      DM.rows.push({ id: i.id, name: i.name, grp: i.grp || 'Dusra', unit: i.unit, sub_unit: i.sub_unit, sub_per: i.sub_per, pack_size: i.pack_size, pack_name: i.pack_name, bal: Math.max(0, i.bal), per_day: i.per_day, days_left: i.days, status: i.status, rate: i.rate || 0, n: 1, manual: true });
+      DM.rows.sort((a, b) => (a.grp === b.grp ? a.name.localeCompare(b.name) : a.grp === 'Raw saman' ? -1 : b.grp === 'Raw saman' ? 1 : a.grp.localeCompare(b.grp))); dmDraw(); };
+    $('#dmPrint').onclick = () => {
+      const pr = DM.rows.filter(r => !r.del && r.n > 0), pg = [...new Set(pr.map(r => r.grp))];
       const w = window.open('', '_blank', 'width=420,height=700');
       w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Demand slip</title><style>
         @page{size:80mm auto;margin:0} body{font-family:'Segoe UI',Arial,sans-serif;width:72mm;margin:0 auto;padding:3mm 0;color:#000;font-size:13px}
         h1{font-size:18px;text-align:center;margin:0} .c{text-align:center} hr{border:0;border-top:1px dashed #000;margin:6px 0}
         table{width:100%;border-collapse:collapse} td{padding:3px 0;vertical-align:top} td.r{text-align:right;white-space:nowrap;font-weight:600}
         .g{font-weight:700;padding-top:6px;text-decoration:underline} .tick{display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:4px;vertical-align:-1px}
-      </style></head><body><h1>${esc(d.shop || 'Pizza Town')}</h1><div class="c"><b>DEMAND SLIP</b></div>
-        <div class="c">${d.date} · ${d.days} din ka saman</div><hr>
-        <table>${grps.map(g => `<tr><td colspan="2" class="g">${esc(g)}</td></tr>` + d.rows.filter(r => r.grp === g).map(r => `<tr><td><span class="tick"></span>${esc(r.name)}</td><td class="r">${buyTxt(r)}</td></tr>`).join('')).join('')}</table>
-        <hr><div><b>${d.rows.length} cheezein</b>${d.total ? ` · andazan Rs ${Math.round(d.total).toLocaleString('en-PK')}` : ''}</div>
-        <div style="font-size:11px;margin-top:4px">Pichle ${d.based_on} din ki sale ke hisaab se</div><br><br></body></html>`);
+      </style></head><body><h1>${esc(DM.shop || 'Pizza Town')}</h1><div class="c"><b>DEMAND SLIP</b></div>
+        <div class="c">${DM.date} · ${DM.days} din ka saman</div><hr>
+        <table>${pg.map(g => `<tr><td colspan="2" class="g">${esc(g)}</td></tr>` + pr.filter(r => r.grp === g).map(r => `<tr><td><span class="tick"></span>${esc(r.name)}</td><td class="r">${dmBuy(r)}</td></tr>`).join('')).join('')}</table>
+        <hr><div><b>${pr.length} cheezein</b>${tot ? ` · andazan Rs ${Math.round(tot).toLocaleString('en-PK')}` : ''}</div>
+        <div style="font-size:11px;margin-top:4px">Pichle ${DM.based_on} din ki sale ke hisaab se</div><br><br></body></html>`);
       w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
     };
+  }
+  const dmLoad = () => guard(async () => {
+    const d = await A('/stock/demand?days=' + $('#dmDays').value);
+    d.rows.forEach(r => { r.n = r.packs || r.buy; });
+    DM = d; dmDraw();
   });
+  $('#dmGo').onclick = dmLoad;
+  $('#dmDays').onchange = () => { if (DM) dmLoad(); };   // din badalte hi list khud nayi
   const iHint = () => { const it = byId[$('#iItem').value], n = +$('#iPacks').value, q = +$('#iQty').value;
     $('#iHint').textContent = !it ? '' : n > 0 && it.pack_size ? `${n} ${it.pack_name || 'pack'} = ${qtyTxt(it, n * it.pack_size)} stock mein judega`
       : q > 0 ? `${qtyTxt(it, q)} stock mein judega` : it.pack_size ? `1 ${it.pack_name || 'pack'} = ${qtyTxt(it, it.pack_size)}. "Kitne pack" likhein, ya kul ${it.unit} likhein.` : `Is ka pack size nahi. Kul ${it.unit} likhein.`;
@@ -387,11 +434,7 @@ async function viewStock() {
       const c = prompt(`${b.dataset.n}: 1 ${per} kitne Rs ka aata hai?`, cur || ''); if (c === null || c === '') return;
       await A('/stock/items/' + b.dataset.id, 'PUT', { rate: +c / (+b.dataset.p || 1) }); toast('Rate save ✓'); viewStock(); return;
     }
-    if (b.dataset.act === 'pack') {
-      const c = prompt(`${b.dataset.n}: 1 pack mein kitne ${b.dataset.u}? (maslan 2)`, b.dataset.p); if (c === null) return;
-      const n = prompt('Pack ka naam (maslan Packet, Dabba, Gallon, Carton)', b.dataset.pn || 'Pack'); if (n === null) return;
-      await A('/stock/items/' + b.dataset.id, 'PUT', { pack_size: c, pack_name: n }); toast('Pack size save ✓'); viewStock();
-    }
+    if (b.dataset.act === 'pack') { packDialog(b.dataset); return; }
   });
 }
 
@@ -442,6 +485,9 @@ async function viewSettings() {
   }).join('') + `<button class="btn gold" id="saveS">Save settings</button>
   <button class="btn" id="pvS">Slip preview (aakhri order ki)</button>
   <div class="box" id="syncBox" style="background:var(--panel2)">Sheet sync check ho raha hai...</div>
+  <div class="box" style="background:var(--panel2)"><b style="color:var(--gold)">Purane orders ki copy (sirf test PC ke liye)</b>
+    <small style="color:var(--mute)">Asli Sheet ke orders ki file (developer se mili) yahan daalein, taake test PC par roz ki khapat aur demand asli sale se dikhe. Ye Sheet par nahi jate, stock minus nahi hota, aur jo order pehle se hai wo dobara nahi aata.</small>
+    <div class="r"><input type="file" id="impF" accept=".json"><button class="btn s" id="impGo">Copy daalein</button></div></div>
   <div class="box" id="updBox" style="background:var(--panel2)"><b style="color:var(--gold)">Software update (GitHub)</b><div id="updInfo">...</div>
     <div class="r"><button class="btn s" id="updCheck">Check for update</button><button class="btn gold s" id="updGo" style="display:none">Update karein</button></div></div>
   <div style="color:var(--mute);font-size:13px">Mobile se order lene ke liye PC aur mobile aik hi WiFi par hon, aur mobile ke browser mein PC ka address kholen (server ki black window mein "Mobile par:" ke aage likha hota hai).</div></div>`;
@@ -464,6 +510,13 @@ async function viewSettings() {
       $('#updGo').style.display = u.behind ? '' : 'none';   // latest ho to Update ka button gaib
     } catch (e) { $('#updInfo').textContent = verTxt + (quiet ? '' : ' · ' + e.message); }
   };
+  $('#impGo').onclick = () => guard(async () => {
+    const f = $('#impF').files[0]; if (!f) throw new Error('Pehle file chunein');
+    const j = JSON.parse(await f.text());
+    if (prompt(`${(j.orders || []).length} purane orders test ke liye daalne hain? Tasdeeq ke liye TEST likhein`) !== 'TEST') return;
+    const r = await A('/import-orders', 'POST', { orders: j.orders, confirm: 'TEST' });
+    toast(`${r.added} orders aa gaye, ${r.skipped} pehle se the${r.no_match.length ? '. Menu mein nahi mile: ' + r.no_match.join(', ') : ''}`, 7000);
+  });
   $('#updCheck').onclick = () => guard(() => check(false));
   check(true);   // Settings khulte hi khud check
   $('#updGo').onclick = () => guard(async () => {

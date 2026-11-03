@@ -417,18 +417,30 @@ function stockOut(orderId, lines, bd, type) {
 }
 // balance = aaya/ginti + (becha hua, sirf 'done' orders; cancel/edit ki hui sale wapas ho jati hai)
 const BAL_SQL = `coalesce(sum(case when m.kind='out' then (case when o.status='done' then m.qty else 0 end) else m.qty end),0)`;
-function stockList() {
+// Roz ki khapat: pichle 7 din ke asal orders x recipes (stock shuru hone se pehle ke orders bhi). 10 min cache
+let USAGE = { key: '', at: 0, map: {}, days: 1 };
+function dailyUsage() {
   const bd = businessDate();
-  const d = new Date(bd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 6);
-  const since = d.toISOString().slice(0, 10);
+  if (USAGE.key === bd && Date.now() - USAGE.at < 10 * 60 * 1000) return USAGE;
+  const d0 = new Date(bd + 'T00:00:00Z'); d0.setUTCDate(d0.getUTCDate() - 7);
+  const since = d0.toISOString().slice(0, 10);
+  const orders = db.prepare("select id,type from orders where status='done' and business_date>=? and business_date<?").all(since, bd);
+  const days = Math.max(1, db.prepare("select count(distinct business_date) n from orders where status='done' and business_date>=? and business_date<?").get(since, bd).n);
+  const li = db.prepare('select variant_id vid,qty,pz from order_items where order_id=?'), map = {};
+  orders.forEach(o => Object.entries(stockNeed(li.all(o.id).filter(l => l.vid), o.type)).forEach(([id, q]) => { map[id] = (map[id] || 0) + q; }));
+  Object.keys(map).forEach(k => { map[k] = map[k] / days; });
+  USAGE = { key: bd, at: Date.now(), map, days };
+  return USAGE;
+}
+function stockList() {
   const items = db.prepare('select * from stock_items where active=1 and coalesce(is_prep,0)=0 order by grp,name').all();
   const alertDays = Math.max(3, parseFloat(getSettings().stock_alert_days) || 3);   // itne din ya kam ka stock = peela
   const bal = Object.fromEntries(db.prepare(`select m.item_id id, ${BAL_SQL} b from stock_moves m left join orders o on o.id=m.ref and m.kind='out' group by m.item_id`).all().map(r => [r.id, r.b]));
-  const use = Object.fromEntries(db.prepare(`select m.item_id id, -sum(m.qty) u from stock_moves m join orders o on o.id=m.ref where m.kind='out' and o.status='done' and m.date>=? group by m.item_id`).all(since).map(r => [r.id, r.u]));
+  const use = dailyUsage().map;
   // jis saman ka stock kabhi likha hi nahi gaya us par alert nahi (warna naye items par har order par "khatam" aata)
   const known = new Set(db.prepare("select distinct item_id i from stock_moves where kind!='out'").all().map(r => r.i));
   return items.map(i => {
-    const b = r2(bal[i.id] || 0), perDay = r2((use[i.id] || 0) / 7);
+    const b = r2(bal[i.id] || 0), perDay = Math.round((use[i.id] || 0) * 1000) / 1000;
     const days = perDay > 0 ? r2(b / perDay) : null;
     let status = 'ok';
     if (!known.has(i.id)) status = 'unset';
@@ -935,6 +947,7 @@ admin.put('/stock/items/:id', (req, res) => {
   if (b.unit) db.prepare('update stock_items set unit=? where id=?').run(String(b.unit).slice(0, 12), req.params.id);
   if (b.min_level !== undefined) setImmediate(stockAlertCheck);
   if (b.rate !== undefined) db.prepare('update stock_items set rate=? where id=?').run(Math.max(0, num(b.rate)), req.params.id);
+  if (b.pack_size !== undefined && String(b.confirm_pin || '') !== getSettings().admin_pin) return res.status(403).json({ error: 'Pack size badalne ke liye Admin PIN ghalat hai' });
   if (b.pack_size !== undefined) db.prepare('update stock_items set pack_size=?, pack_name=? where id=?').run(Math.max(0, num(b.pack_size)), String(b.pack_name || '').slice(0, 30), req.params.id);
   res.json({ ok: true });
 });
@@ -1018,16 +1031,9 @@ admin.post('/stock/from-menu', (req, res) => {
 // Demand slip: pichle 7 din ki asal sale (orders + recipes) se roz ki khapat, N din ka saman - bacha hua = mangwana (pack mein)
 admin.get('/stock/demand', (req, res) => {
   const days = Math.min(30, Math.max(1, int(req.query.days, 3)));
-  const bd = businessDate(), d0 = new Date(bd + 'T00:00:00Z'); d0.setUTCDate(d0.getUTCDate() - 7);
-  const since = d0.toISOString().slice(0, 10);
-  const orders = db.prepare("select id,type from orders where status='done' and business_date>=? and business_date<?").all(since, bd);
-  const nDays = Math.max(1, db.prepare("select count(distinct business_date) n from orders where status='done' and business_date>=? and business_date<?").get(since, bd).n);
-  const li = db.prepare('select variant_id vid,qty,pz from order_items where order_id=?');
-  const used = {};
-  orders.forEach(o => { const t = stockNeed(li.all(o.id).filter(l => l.vid), o.type); Object.entries(t).forEach(([id, q]) => { used[id] = (used[id] || 0) + q; }); });
-  const rows = [];
+  const bd = businessDate(), U = dailyUsage(), nDays = U.days, rows = [];
   stockList().forEach(i => {
-    const perDay = (used[i.id] || 0) / nDays, bal = Math.max(0, i.bal);
+    const perDay = U.map[i.id] || 0, bal = Math.max(0, i.bal);
     let need = perDay * days - bal;
     if (perDay === 0 && (i.status === 'out' || i.status === 'low')) need = Math.max(need, i.pack_size || 1, i.min_level - bal);
     if (i.min_level > 0) need = Math.max(need, i.min_level + perDay * days - bal);
@@ -1035,10 +1041,36 @@ admin.get('/stock/demand', (req, res) => {
     const packs = i.pack_size > 0 ? Math.ceil(need / i.pack_size - 1e-9) : null;
     rows.push({ name: i.name, grp: i.grp || 'Dusra', unit: i.unit, sub_unit: i.sub_unit, sub_per: i.sub_per, bal: r2(bal), per_day: Math.round(perDay * 1000) / 1000,
       need: Math.round(need * 1000) / 1000, packs, pack_size: i.pack_size, pack_name: i.pack_name, buy: packs ? r2(packs * i.pack_size) : Math.round(need * 100) / 100,
-      cost: i.rate ? Math.round((packs ? packs * i.pack_size : need) * i.rate) : null, status: i.status });
+      cost: i.rate ? Math.round((packs ? packs * i.pack_size : need) * i.rate) : null, status: i.status, days_left: perDay > 0 ? Math.round(bal / perDay * 10) / 10 : null, id: i.id, rate: i.rate || 0 });
   });
   rows.sort((a, b) => (a.grp === b.grp ? a.name.localeCompare(b.name) : a.grp === 'Raw saman' ? -1 : b.grp === 'Raw saman' ? 1 : a.grp.localeCompare(b.grp)));
   res.json({ days, based_on: nDays, date: bd, rows, total: rows.reduce((t, r) => t + (r.cost || 0), 0), shop: getSettings().shop_name });
+});
+// Test PC: asli Sheet ke purane orders ki copy daalna (sirf naye uid; Sheet par nahi jate, stock minus nahi hota)
+admin.post('/import-orders', (req, res) => {
+  const b = req.body || {};
+  if (b.confirm !== 'TEST') return res.status(400).json({ error: 'Tasdeeq ke liye TEST likhein' });
+  const list = Array.isArray(b.orders) ? b.orders : [];
+  const RN = { 'Double Deckar': 'Double Decker', 'Pratha Roll': 'Paratha Roll', 'Oven Backed Wings': 'Oven Baked Wings' };
+  const findV = db.prepare('select v.id,v.cost from variants v join items i on i.id=v.item_id where lower(i.name)=lower(?) and v.label=? and i.deleted=0 and v.deleted=0');
+  const has = db.prepare('select 1 from orders where uid=?');
+  let added = 0, skipped = 0, noMatch = new Set();
+  db.transaction(() => list.forEach(o => {
+    if (!o.uid || has.get(o.uid)) { skipped++; return; }
+    const oid = db.prepare(`insert into orders(uid,order_no,business_date,type,table_no,customer_name,phone,address,rider,subtotal,discount,delivery_charge,service_charge,total,cost,profit,payment,status,note,printed,print_at,created_at,queued)
+      values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,'',1,?,?,0)`).run(o.uid, int(o.order_no), String(o.date || '').slice(0, 10), ['dinein', 'takeaway', 'delivery'].includes(o.type) ? o.type : 'takeaway',
+      String(o.table_no || ''), String(o.customer_name || ''), String(o.phone || ''), String(o.address || ''), String(o.rider || ''), int(o.subtotal), int(o.discount), int(o.delivery_charge), int(o.service_charge),
+      int(o.total), int(o.total), String(o.payment || 'Cash'), o.status === 'cancelled' ? 'cancelled' : 'done', String(o.created_at || ''), String(o.created_at || '')).lastInsertRowid;
+    (o.items || []).forEach(i => {
+      const v = findV.get(RN[i.item] || i.item, String(i.variant || ''));
+      if (!v) noMatch.add(i.item + (i.variant ? ' ' + i.variant : ''));
+      db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price,variant_id,pz) values(?,?,?,\'\',?,0,?,?,\'\',0,?,\'\')')
+        .run(oid, String(i.item || ''), String(i.variant || ''), int(i.price), Math.max(1, int(i.qty, 1)), String(i.note || ''), v ? v.id : null);
+    });
+    added++;
+  }))();
+  USAGE.at = 0; setImmediate(stockAlertCheck);
+  res.json({ ok: true, added, skipped, no_match: [...noMatch] });
 });
 // Recipes final hain (recipes-seed.js); admin se badli nahi ja saktin
 // Recipe ki lagat: har saman ki qeemat (aakhri khareed ke rate se) + kul (Dine-in / Takeaway)
