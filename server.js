@@ -82,6 +82,20 @@ create index if not exists idx_moves_item on stock_moves(item_id);
 create index if not exists idx_moves_ref on stock_moves(ref);
 `);
 addCol('stock_items', 'grp', "text default ''");
+// Stock v2: gram/ml mein recipe, pack size, Dough jaisi khud banai cheez (prep), takeaway/delivery packing, deal ke hisse
+addCol('stock_items', 'sub_unit', "text default ''");   // g / ml (recipe isi mein likhi jati hai)
+addCol('stock_items', 'sub_per', 'real default 0');      // 1 unit (kg/litre) mein kitne g/ml
+addCol('stock_items', 'pack_size', 'real default 0');    // 1 pack = itni unit (maslan 2 kg)
+addCol('stock_items', 'pack_name', "text default ''");
+addCol('stock_items', 'is_prep', 'integer default 0');   // Dough: apna stock nahi, is ka saman minus hota hai
+addCol('stock_items', 'prep_yield', 'real default 0');   // 1 batch ka wazan (g)
+addCol('recipes', 'away', 'integer default 0');          // 1 = sirf takeaway/delivery par (packing)
+addCol('order_items', 'pz', "text default ''");          // deal ke pizza flavour + topping
+db.exec(`
+create table if not exists prep_recipes(prep_id integer not null, item_id integer not null, qty real not null, primary key(prep_id,item_id));
+create table if not exists deal_parts(id integer primary key, variant_id integer not null, part_vid integer not null, qty real not null default 1, slot text default '');
+create index if not exists idx_deal_parts on deal_parts(variant_id);
+`);
 // Menu delete ab "chhupana" hai (deleted=1), taake ghalti se delete hua wapas aa sake
 addCol('categories', 'deleted', 'integer default 0');
 addCol('items', 'deleted', 'integer default 0');
@@ -124,9 +138,12 @@ const DEFAULTS = {
   last_alive: '',                 // (internal) POS aakhri baar kab chal raha tha
   purge_fake_done: '',            // (internal) purane test orders aik baar saaf hue
   restore_1850_done: '',          // (internal) ghalti se delete hui Deal Rs 1850 aik baar wapas
+  pizza_upgrade: '{"M":{"Elite Flavours":100,"Premium Flavours":200},"L":{"Elite Flavours":100,"Premium Flavours":300}}', // deal mein flavour badalne ke paise
+  pizza_toppings: '100,200,300',  // extra topping ke button (Rs)
+  stock_v2_done: '',              // (internal) recipes/stock v2 aik baar
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done']);
+const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done']);
+const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -151,8 +168,9 @@ function fullMenu(admin) {
   const cats = db.prepare(`select * from categories where deleted=0 ${admin ? '' : 'and active=1'} order by sort,id`).all();
   const items = db.prepare(`select * from items where deleted=0 ${admin ? '' : 'and active=1'} order by sort,id`).all();
   const vars = db.prepare(`select * from variants where deleted=0 ${admin ? '' : 'and active=1'} order by sort,id`).all();
-  const vByItem = {};
-  vars.forEach(v => { if (!admin) delete v.cost; (vByItem[v.item_id] = vByItem[v.item_id] || []).push(v); });
+  const vByItem = {}, slots = {};
+  db.prepare("select variant_id v, part_vid d, slot from deal_parts where slot!='' order by id").all().forEach(r => (slots[r.v] = slots[r.v] || []).push({ size: r.slot, def: r.d }));
+  vars.forEach(v => { if (!admin) delete v.cost; if (slots[v.id]) v.slots = slots[v.id]; (vByItem[v.item_id] = vByItem[v.item_id] || []).push(v); });
   const iByCat = {};
   items.forEach(i => {
     i.variants = vByItem[i.id] || [];
@@ -342,12 +360,36 @@ app.use(express.static(path.join(__dirname, 'public')));
 // ---------- stock ----------
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = n => Math.round(n * 100) / 100;
-function stockOut(orderId, lines, bd) {
-  const rec = db.prepare('select item_id,qty from recipes where variant_id=?');
+// Kis order line se kaunsa saman kitna minus ho (deal ke hisse, pizza flavour, Dough ka saman, takeaway packing)
+function stockNeed(lines, type) {
+  const Q = {
+    rec: db.prepare('select item_id,qty,away from recipes where variant_id=?'),
+    parts: db.prepare('select part_vid,qty,slot from deal_parts where variant_id=? order by id'),
+    item: db.prepare('select id,is_prep,prep_yield,sub_per from stock_items where id=?'),
+    prep: db.prepare('select item_id,qty from prep_recipes where prep_id=?'),
+  };
+  const away = type !== 'dinein', tot = {};
+  const addItem = (id, q) => {
+    const it = Q.item.get(id); if (!it) return;
+    if (it.is_prep) { if (it.prep_yield > 0) { const f = q * (it.sub_per || 1) / it.prep_yield; Q.prep.all(id).forEach(r => { tot[r.item_id] = (tot[r.item_id] || 0) + r.qty * f; }); } return; }
+    tot[id] = (tot[id] || 0) + q;
+  };
+  const addVariant = (vid, mult, slots, depth) => {
+    if (depth > 3) return;
+    Q.rec.all(vid).forEach(r => { if (!r.away || away) addItem(r.item_id, r.qty * mult); });
+    let si = 0;
+    Q.parts.all(vid).forEach(p => { let pv = p.part_vid; if (p.slot) { const c = slots && slots[si++]; if (c && c.vid) pv = c.vid; } addVariant(pv, p.qty * mult, null, depth + 1); });
+  };
+  // extra topping ka saman (recipes-seed.js TOPPING)
+  const TOP = require('./recipes-seed').TOPPING, byName = db.prepare('select id,sub_per from stock_items where active=1 and is_prep=0 and lower(name)=lower(?)');
+  const addTop = (rs, mult) => Object.entries(TOP[rs] || {}).forEach(([n, g]) => { const it = byName.get(n); if (it) tot[it.id] = (tot[it.id] || 0) + (it.sub_per ? g / it.sub_per : g) * mult; });
+  lines.forEach(l => { if (l.vid) { const z = parsePz(l.pz); addVariant(l.vid, l.qty, z && z.s, 0); if (z && z.s) z.s.forEach(x => { if (x.top) addTop(x.top, l.qty); }); } });
+  return tot;
+}
+function stockOut(orderId, lines, bd, type) {
   const ins = db.prepare("insert into stock_moves(item_id,qty,kind,ref,date,created_at) values(?,?,'out',?,?,?)");
-  const now = fmtDT(new Date()), tot = {};
-  lines.forEach(l => { if (l.vid) rec.all(l.vid).forEach(r => { tot[r.item_id] = (tot[r.item_id] || 0) + r.qty * l.qty; }); });
-  Object.entries(tot).forEach(([id, q]) => ins.run(id, -q, orderId, bd, now));
+  const now = fmtDT(new Date()), tot = stockNeed(lines, type);
+  Object.entries(tot).forEach(([id, q]) => ins.run(id, -Math.round(q * 10000) / 10000, orderId, bd, now));
 }
 // balance = aaya/ginti + (becha hua, sirf 'done' orders; cancel/edit ki hui sale wapas ho jati hai)
 const BAL_SQL = `coalesce(sum(case when m.kind='out' then (case when o.status='done' then m.qty else 0 end) else m.qty end),0)`;
@@ -355,25 +397,29 @@ function stockList() {
   const bd = businessDate();
   const d = new Date(bd + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 6);
   const since = d.toISOString().slice(0, 10);
-  const items = db.prepare('select * from stock_items where active=1 order by name').all();
+  const items = db.prepare('select * from stock_items where active=1 and coalesce(is_prep,0)=0 order by grp,name').all();
   const bal = Object.fromEntries(db.prepare(`select m.item_id id, ${BAL_SQL} b from stock_moves m left join orders o on o.id=m.ref and m.kind='out' group by m.item_id`).all().map(r => [r.id, r.b]));
   const use = Object.fromEntries(db.prepare(`select m.item_id id, -sum(m.qty) u from stock_moves m join orders o on o.id=m.ref where m.kind='out' and o.status='done' and m.date>=? group by m.item_id`).all(since).map(r => [r.id, r.u]));
+  // jis saman ka stock kabhi likha hi nahi gaya us par alert nahi (warna naye items par har order par "khatam" aata)
+  const known = new Set(db.prepare("select distinct item_id i from stock_moves where kind!='out'").all().map(r => r.i));
   return items.map(i => {
     const b = r2(bal[i.id] || 0), perDay = r2((use[i.id] || 0) / 7);
     const days = perDay > 0 ? r2(b / perDay) : null;
     let status = 'ok';
-    if (b <= 0) status = 'out';
+    if (!known.has(i.id)) status = 'unset';
+    else if (b <= 0) status = 'out';
     else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= 2)) status = 'low';
-    return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status };
+    return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status,
+      sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '' };
   });
 }
 app.get('/api/stock/alerts', (req, res) => {
   try {
     const list = stockList(), by = Object.fromEntries(list.map(i => [i.id, i]));
-    const alerts = list.filter(i => i.status !== 'ok').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1));
+    const alerts = list.filter(i => i.status === 'out' || i.status === 'low').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1));
     const variants = {};
-    db.prepare('select variant_id v, item_id i from recipes').all().forEach(r => {
-      const it = by[r.i]; if (!it || it.status === 'ok') return;
+    db.prepare('select variant_id v, item_id i from recipes where away=0').all().forEach(r => {
+      const it = by[r.i]; if (!it || (it.status !== 'out' && it.status !== 'low')) return;
       const cur = variants[r.v];
       if (!cur || (it.status === 'out' && cur.status !== 'out')) variants[r.v] = { status: it.status, name: it.name, bal: it.bal, unit: it.unit, days: it.days };
     });
@@ -408,6 +454,7 @@ function calcOrder(b, S, keepItems) {
   if (!Array.isArray(b.items) || !b.items.length) return { err: 'Cart khali hai' };
   if (type === 'delivery' && !String(b.address || '').trim()) return { err: 'Delivery ke liye address likhein' };
   const getV = db.prepare(`select v.id,v.label,v.price,v.cost,i.name,i.details from variants v join items i on i.id=v.item_id where v.id=? and v.active=1 and i.active=1 and v.deleted=0 and i.deleted=0`);
+  const PZ = pzContext(S);
   const lines = [];
   for (const it of b.items) {
     const qty = Math.min(99, Math.max(1, int(it.qty, 1)));
@@ -417,13 +464,19 @@ function calcOrder(b, S, keepItems) {
     if (it.keep && keepItems) {
       const k = keepItems.find(x => x.id === int(it.keep));
       if (!k) return { err: 'Purani line nahi mili' };
-      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note, extras, ep, vid: k.variant_id || null });
+      const old = parsePz(k.pz);
+      const z = pzApply(PZ, k.variant_id, it.pz !== undefined ? it.pz : (old ? old.s : null), qty);
+      if (z.err) return z;
+      const mx = it.pz !== undefined ? extras : (old ? old.mx : extras), mp = it.pz !== undefined ? ep : (old ? old.mp : ep);
+      lines.push({ name: k.item_name, label: k.variant_label, details: k.details || '', price: k.price, cost: k.cost || 0, qty, note, ...pzMerge(z, mx, mp), vid: k.variant_id || null });
       continue;
     }
     const v = getV.get(it.variant_id);
     if (!v) return { err: 'Item menu mein nahi mila' };
     if (v.price <= 0) return { err: `${v.name} ${v.label} ki price set nahi hai (Admin se price daalein)` };
-    lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note, extras, ep, vid: v.id });
+    const z = pzApply(PZ, v.id, it.pz, qty);
+    if (z.err) return z;
+    lines.push({ name: v.name, label: v.label, details: v.details || '', price: v.price, cost: v.cost || 0, qty, note, ...pzMerge(z, extras, ep), vid: v.id });
   }
   const subtotal = lines.reduce((s, l) => s + l.price * l.qty + l.ep, 0);
   const cost = lines.reduce((s, l) => s + l.cost * l.qty, 0);
@@ -441,6 +494,44 @@ function calcOrder(b, S, keepItems) {
   }
   return { type, lines, subtotal, cost, discount, profit, delivery, service, total: subtotal - discount + delivery + service };
 }
+// ---------- pizza flavour (deal) + extra topping ----------
+const SZ_NAME = { L: 'Large', M: 'Medium', S: 'Small' };
+function parsePz(t) { try { return t ? JSON.parse(t) : null; } catch (e) { return null; } }
+function pzContext(S) {
+  let up = {}; try { up = JSON.parse(S.pizza_upgrade || '{}'); } catch (e) {}
+  const tops = String(S.pizza_toppings || '').split(',').map(x => int(x)).filter(x => x > 0);
+  const pizzas = {};   // variant id -> {name,size,grp}
+  db.prepare(`select v.id,v.label,i.name,i.grp from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id
+    where lower(c.name) like '%pizza%' and c.deleted=0 and i.deleted=0 and v.deleted=0 and i.active=1 and v.active=1`).all()
+    .forEach(r => (pizzas[r.id] = { name: r.name, size: r.label, grp: r.grp }));
+  return { up, tops, pizzas, slots: db.prepare("select part_vid d, slot from deal_parts where variant_id=? and slot!='' order by id") };
+}
+// pz = [{vid, top}] (deal ke har pizza ke liye) ya [{top}] (akela pizza). Paise server khud ginta hai.
+function pzApply(C, vid, pz, qty) {
+  const none = { s: null, text: '', charge: 0 };
+  if (!vid || !Array.isArray(pz)) return none;
+  const top = t => (C.tops.includes(int(t)) ? int(t) : 0);
+  const slots = C.slots.all(vid);
+  let charge = 0; const s = [], txt = [];
+  if (slots.length) {
+    slots.forEach((sl, i) => {
+      const want = pz[i] || {}, p = C.pizzas[int(want.vid)];
+      const pv = p && p.size === sl.slot ? int(want.vid) : sl.d, pp = C.pizzas[pv] || { name: '?', grp: '' };
+      const up = int(((C.up[sl.slot] || {})[pp.grp]) || 0), t = top(want.top);
+      charge += up + t; s.push({ vid: pv, size: sl.slot, name: pp.name, up, top: t });
+      txt.push(`${SZ_NAME[sl.slot] || sl.slot}: ${pp.name}${up ? ' (+' + up + ')' : ''}${t ? ' + Topping (+' + t + ')' : ''}`);
+    });
+  } else if (C.pizzas[vid]) {
+    const t = top((pz[0] || {}).top);
+    if (!t) return none;
+    charge = t; s.push({ top: t }); txt.push('Extra Topping (+' + t + ')');
+  } else return none;
+  return { s, text: txt.join(' | '), charge: charge * qty };
+}
+function pzMerge(z, mx, mp) {
+  if (!z.s) return { extras: mx, ep: mp, pz: '' };
+  return { extras: [z.text, mx].filter(Boolean).join(' | ').slice(0, 300), ep: mp + z.charge, pz: JSON.stringify({ s: z.s, mx, mp }) };
+}
 const editLeft = o => Math.max(0, Math.round((Number(S_editMin()) * 60) - (Date.now() - new Date(o.created_at.replace(' ', 'T')).getTime()) / 1000));
 function S_editMin() { const m = parseFloat(getSettings().edit_window_min); return isNaN(m) ? 2 : Math.max(0, m); }
 
@@ -456,9 +547,9 @@ function insertOrder(b, calc, S, replaces) {
     subtotal, discount, delivery, service, total, cost, profit,
     calc.gift ? 'Gift' : (['Cash', 'Online', 'Card'].includes(b.payment) ? b.payment : 'Cash'),
     String(b.note || '').slice(0, 300), fmtDT(now), fmtDT(now), sync ? 1 : 0, replaces || null, calc.gift ? calc.gift_by : null).lastInsertRowid;
-  const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price,variant_id) values(?,?,?,?,?,?,?,?,?,?,?)');
-  lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras, l.ep, l.vid || null));
-  try { stockOut(oid, lines, bd); } catch (e) { console.error('stock', e.message); }
+  const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price,variant_id,pz) values(?,?,?,?,?,?,?,?,?,?,?,?)');
+  lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras, l.ep, l.vid || null, l.pz || ''));
+  try { stockOut(oid, lines, bd, type); } catch (e) { console.error('stock', e.message); }
   const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
   db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
   if (b.no_print) db.prepare('update orders set printed=1 where id=?').run(oid);   // is order ki slip nahi nikalni
@@ -699,7 +790,21 @@ admin.post('/orders/:id/cancel', (req, res) => {
 admin.get('/stock', (req, res) => {
   const list = stockList();
   const moves = db.prepare(`select m.id,m.item_id,i.name,i.unit,m.qty,m.kind,m.date,m.note from stock_moves m join stock_items i on i.id=m.item_id where m.kind!='out' order by m.id desc limit 20`).all();
-  res.json({ items: list, moves });
+  const preps = db.prepare('select id,name,unit,sub_unit,sub_per,prep_yield from stock_items where active=1 and is_prep=1').all()
+    .map(p => ({ ...p, rows: db.prepare('select item_id,qty from prep_recipes where prep_id=?').all(p.id) }));
+  res.json({ items: list, moves, preps });
+});
+// Shuru ka stock / ginti: sab items aik saath (sirf jin mein number likha ho)
+admin.post('/stock/count-bulk', (req, res) => {
+  const rows = Array.isArray((req.body || {}).rows) ? req.body.rows : [];
+  const cur = Object.fromEntries(stockList().map(i => [i.id, i.bal])), now = fmtDT(new Date()), bd = businessDate();
+  let n = 0;
+  db.transaction(() => rows.forEach(r => {
+    if (r.count === '' || r.count == null || !(int(r.item_id) in cur) || num(r.count) < 0) return;
+    const diff = r2(num(r.count) - cur[int(r.item_id)]);
+    if (diff !== 0) { db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'adjust',?,?,?)").run(int(r.item_id), diff, bd, `Ginti: ${cur[int(r.item_id)]} -> ${num(r.count)}`, now); n++; }
+  }))();
+  res.json({ ok: true, changed: n });
 });
 admin.post('/stock/items', (req, res) => {
   const b = req.body || {}, name = String(b.name || '').trim().slice(0, 60);
@@ -716,9 +821,12 @@ admin.put('/stock/items/:id', (req, res) => {
   const b = req.body || {};
   if (b.min_level !== undefined) db.prepare('update stock_items set min_level=? where id=?').run(Math.max(0, num(b.min_level)), req.params.id);
   if (b.unit) db.prepare('update stock_items set unit=? where id=?').run(String(b.unit).slice(0, 12), req.params.id);
+  if (b.pack_size !== undefined) db.prepare('update stock_items set pack_size=?, pack_name=? where id=?').run(Math.max(0, num(b.pack_size)), String(b.pack_name || '').slice(0, 30), req.params.id);
   res.json({ ok: true });
 });
 admin.delete('/stock/items/:id', (req, res) => {
+  const used = db.prepare('select (select count(*) from recipes where item_id=?) + (select count(*) from prep_recipes where item_id=?) n').get(req.params.id, req.params.id).n;
+  if (used) return res.status(400).json({ error: 'Ye saman recipes mein istemal hota hai, hataya nahi ja sakta' });
   db.prepare('update stock_items set active=0 where id=?').run(req.params.id);
   db.prepare('delete from recipes where item_id=?').run(req.params.id);
   res.json({ ok: true });
@@ -728,7 +836,7 @@ admin.delete('/stock/items/:id', (req, res) => {
 function stockForVariant(vid) {
   const v = db.prepare('select v.id,v.label,i.name,c.name cat from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.id=?').get(vid);
   if (!v) return { err: 'Menu item nahi mila' };
-  const rec = db.prepare('select r.item_id from recipes r join stock_items s on s.id=r.item_id and s.active=1 where r.variant_id=?').all(v.id);
+  const rec = db.prepare('select r.item_id from recipes r join stock_items s on s.id=r.item_id and s.active=1 and s.is_prep=0 where r.variant_id=? and r.away=0').all(v.id);
   if (rec.length > 1) return { err: 'Is item ki recipe mein kai cheezein hain. Un ka stock "Raw saman" se alag daalein.' };
   if (rec.length === 1) return { id: rec[0].item_id };
   const nm = (v.name + (v.label ? ' ' + v.label : '')).slice(0, 60);
@@ -743,7 +851,8 @@ admin.post('/stock/in', (req, res) => {
   if (b.variant_id) { const r = stockForVariant(b.variant_id); if (r.err) return res.status(400).json({ error: r.err }); b.item_id = r.id; }
   const it = db.prepare('select * from stock_items where id=? and active=1').get(b.item_id);
   if (!it) return res.status(400).json({ error: 'Item chunein' });
-  const qty = num(b.qty); if (qty <= 0) return res.status(400).json({ error: 'Miqdar likhein' });
+  const qty = num(b.packs) > 0 && it.pack_size > 0 ? r2(num(b.packs) * it.pack_size) : num(b.qty);
+  if (qty <= 0) return res.status(400).json({ error: 'Miqdar likhein' });
   const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : businessDate(), now = fmtDT(new Date());
   const amount = int(b.amount);
   db.transaction(() => {
@@ -770,8 +879,10 @@ admin.post('/stock/count', (req, res) => {
 });
 admin.get('/recipes', (req, res) => {
   const vs = db.prepare(`select v.id,v.label,i.name,c.name cat from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.active=1 and i.active=1 and v.deleted=0 and i.deleted=0 and c.deleted=0 order by c.sort,c.id,i.sort,i.id,v.sort,v.id`).all();
-  const rec = db.prepare('select r.variant_id v,r.item_id i,r.qty q from recipes r').all();
-  res.json({ variants: vs.map(v => ({ ...v, recipe: rec.filter(r => r.v === v.id).map(r => ({ item_id: r.i, qty: r.q })) })) });
+  const rec = db.prepare('select r.variant_id v,r.item_id i,r.qty q,r.away a from recipes r').all();
+  const parts = db.prepare('select d.variant_id v,d.qty,d.slot,i.name,v.label from deal_parts d join variants v on v.id=d.part_vid join items i on i.id=v.item_id order by d.id').all();
+  res.json({ variants: vs.map(v => ({ ...v, recipe: rec.filter(r => r.v === v.id).map(r => ({ item_id: r.i, qty: r.q, away: r.a })),
+    parts: parts.filter(p => p.v === v.id).map(p => (p.slot ? `${p.slot} Pizza (shuru: ${p.name})` : `${p.qty} × ${p.name}${p.label ? ' ' + p.label : ''}`)) })) });
 });
 // Menu ki category se stock items + recipe (1 sale = 1 piece) ek click mein bana do (cold drinks wagera ke liye)
 admin.post('/stock/from-menu', (req, res) => {
@@ -787,15 +898,7 @@ admin.post('/stock/from-menu', (req, res) => {
   }))();
   res.json({ made, linked });
 });
-admin.put('/recipes/:vid', (req, res) => {
-  const rows = (Array.isArray((req.body || {}).rows) ? req.body.rows : []).filter(r => r.item_id && num(r.qty) > 0);
-  db.transaction(() => {
-    db.prepare('delete from recipes where variant_id=?').run(req.params.vid);
-    const ins = db.prepare('insert or replace into recipes(variant_id,item_id,qty) values(?,?,?)');
-    rows.forEach(r => ins.run(req.params.vid, r.item_id, num(r.qty)));
-  })();
-  res.json({ ok: true });
-});
+// Recipes final hain (recipes-seed.js); admin se badli nahi ja saktin
 
 // ----- expenses -----
 admin.get('/expenses', (req, res) => {
@@ -957,6 +1060,80 @@ try {
     setSetting('restore_1850_done', fmtDT(new Date()));
   }
 } catch (e) { console.error('restore1850', e.message); }
+
+// Stock v2 aik baar: menu ki spelling, saman ki list, Dough, sab recipes aur deals ke hisse. Pehle backup.
+function seedStockV2() {
+  try {
+    if (getSettings().stock_v2_done) return;
+    const R = require('./recipes-seed'), now = fmtDT(new Date()), miss = [];
+    if (db.prepare('select count(*) n from variants').get().n === 0) return;
+    fs.mkdirSync(BACKUPS, { recursive: true });
+    db.prepare('VACUUM INTO ?').run(path.join(BACKUPS, `before-stock-v2-${now.replace(/[: ]/g, '-')}.db`));
+    db.transaction(() => {
+      R.RENAMES.forEach(([a, b]) => db.prepare('update items set name=? where name=?').run(b, a));
+      // Cold drink: sab se choti 350ml (250ml ab nahi). Qeemat wahi rehti hai, admin se check kar lein
+      db.prepare(`select v.id,v.item_id from variants v join items i on i.id=v.item_id where lower(i.name) like '%drink%' and replace(lower(v.label),' ','') in ('250ml','330ml') and v.deleted=0`).all().forEach(v => {
+        if (!db.prepare("select 1 from variants where item_id=? and replace(lower(label),' ','')='350ml' and deleted=0").get(v.item_id)) db.prepare("update variants set label='350ml' where id=?").run(v.id);
+        else db.prepare('update variants set deleted=1 where id=?').run(v.id);
+      });
+      db.prepare("update stock_items set name=replace(replace(name,'250ml','350ml'),'250 ml','350ml') where lower(name) like '%drink%250%ml%'").run();
+      db.prepare("update items set details=replace(details,'330ml Drink','350ml Drink') where details like '%330ml Drink%'").run();
+      const ids = {};
+      const findItem = n => db.prepare('select * from stock_items where active=1 and lower(name)=lower(?)').get(n);
+      R.ITEMS.forEach(([name, unit, su, sp, grp, pk, pkn]) => {
+        const ex = findItem(name);
+        if (ex && ex.unit === unit) { db.prepare('update stock_items set sub_unit=?, sub_per=?, pack_size=?, pack_name=? where id=?').run(su, sp, pk || 0, pkn || '', ex.id); ids[name] = { id: ex.id, sp }; return; }
+        const nm = ex ? `${name} (${unit})` : name;
+        ids[name] = { id: db.prepare('insert into stock_items(name,unit,grp,sub_unit,sub_per,pack_size,pack_name,created_at) values(?,?,?,?,?,?,?,?)').run(nm, unit, grp, su, sp, pk || 0, pkn || '', now).lastInsertRowid, sp };
+      });
+      const dEx = findItem(R.DOUGH.name);
+      const dId = dEx ? dEx.id : db.prepare("insert into stock_items(name,unit,grp,sub_unit,sub_per,is_prep,prep_yield,created_at) values(?,'kg','Raw saman','g',1000,1,?,?)").run(R.DOUGH.name, R.DOUGH.yield, now).lastInsertRowid;
+      db.prepare('update stock_items set is_prep=1, prep_yield=?, sub_unit=?, sub_per=? where id=?').run(R.DOUGH.yield, 'g', 1000, dId);
+      ids[R.DOUGH.name] = { id: dId, sp: 1000 };
+      const conv = (n, q) => (ids[n].sp ? q / ids[n].sp : q);
+      db.prepare('delete from prep_recipes where prep_id=?').run(dId);
+      Object.entries(R.DOUGH.rows).forEach(([n, q]) => db.prepare('insert into prep_recipes(prep_id,item_id,qty) values(?,?,?)').run(dId, ids[n].id, conv(n, q)));
+      const findV = (name, label) => db.prepare(`select v.id from variants v join items i on i.id=v.item_id where lower(i.name)=lower(?) and v.label=? and v.deleted=0 and i.deleted=0`).get(name, label);
+      R.recipes().forEach(r => {
+        const v = findV(r.name, r.label); if (!v) { miss.push(r.name + (r.label ? ' ' + r.label : '')); return; }
+        db.prepare('delete from recipes where variant_id=?').run(v.id);
+        const ins = db.prepare('insert or replace into recipes(variant_id,item_id,qty,away) values(?,?,?,?)');
+        Object.entries(r.rows).forEach(([n, q]) => { if (q) ins.run(v.id, ids[n].id, conv(n, q), 0); });
+        Object.entries(r.away).forEach(([n, q]) => { if (q) ins.run(v.id, ids[n].id, conv(n, q), 1); });
+      });
+      // Deals: details ("1 Large Pizza, 2 Zinger Burger, 1 Ltr Drink") se hisse
+      const SZ = { large: 'L', medium: 'M', small: 'S' };
+      db.prepare(`select v.id, i.name, i.details from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id
+        where lower(c.name) like '%deal%' and v.deleted=0 and i.deleted=0`).all().forEach(d => {
+        db.prepare('delete from deal_parts where variant_id=?').run(d.id);
+        const ins = db.prepare('insert into deal_parts(variant_id,part_vid,qty,slot) values(?,?,?,?)');
+        (d.details || '').split(',').map(x => x.trim()).filter(Boolean).forEach(part => {
+          const m = part.match(/^(\d+(?:\.\d+)?)\s*(.*)$/); if (!m) { miss.push(`${d.name}: ${part}`); return; }
+          const n = Number(m[1]), rest = m[2].trim();
+          const pm = rest.match(/^(large|medium|small)\s+pizza/i);
+          if (pm) { const sz = SZ[pm[1].toLowerCase()], f = findV('Fajita', sz); if (!f) { miss.push(`${d.name}: ${part}`); return; } for (let k = 0; k < n; k++) ins.run(d.id, f.id, 1, sz); return; }
+          const dm = rest.match(/^(ltr|ml)\s*drink/i);
+          if (dm) {
+            const want = (m[1] + (dm[1].toLowerCase() === 'ltr' ? ' ltr' : 'ml')).replace(/\s+/g, '').toLowerCase();
+            const v = db.prepare(`select v.id,v.label from variants v join items i on i.id=v.item_id where lower(i.name) like '%drink%' and v.deleted=0 and i.deleted=0`).all().find(x => x.label.replace(/\s+/g, '').toLowerCase() === want);
+            if (v) ins.run(d.id, v.id, 1, ''); else miss.push(`${d.name}: ${part}`);
+            return;
+          }
+          const names = [rest, rest.replace(/\s+burger$/i, '')];
+          for (const nm of names) {
+            const pc = findV(nm, `${n} pcs`); if (pc) { ins.run(d.id, pc.id, 1, ''); return; }
+            const one = findV(nm, ''); if (one) { ins.run(d.id, one.id, n, ''); return; }
+          }
+          miss.push(`${d.name}: ${part}`);
+        });
+      });
+    })();
+    logEvent('stock', 'Stock v2: recipes, Dough aur deals ke hisse lag gaye' + (miss.length ? '. Nahi mile: ' + miss.join(', ') : ''));
+    if (miss.length) console.log('Stock v2 - nahi mile:', miss.join(' ; '));
+    setSetting('stock_v2_done', now);
+  } catch (e) { console.error('stock v2:', e.message); }
+}
+seedStockV2();
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);

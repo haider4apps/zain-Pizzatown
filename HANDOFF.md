@@ -28,3 +28,13 @@ Chrome kiosk app: tray "Open POS" or `start.bat` (`--kiosk-printing`). POS has i
 - Zain installs on his PC via the installer link; his PC has its own empty `data/`.
 - Later: nightly Drive backup, Sheet restore tool, home-screen icon, stock management (after ~2 weeks of billing).
 - Tray/autostart and installer are untested on a clean Windows machine.
+
+## v1.11.0 (Nov 2026) - stock v2 + deal flavour/topping
+- `recipes-seed.js`: owner's recipes (grams), Dough prep (1652g batch), packing; runs once at startup (`stock_v2_done`), backup first,
+  also renames menu spellings (Oven Baked Wings, Double Decker, Paratha Roll, Lasagna, Lasagna Pizza).
+- stock_items: sub_unit/sub_per (recipe in g/ml, stock in kg/litre), pack_size/pack_name, is_prep/prep_yield (Dough -> prep_recipes).
+  recipes.away=1 = only takeaway/delivery (boxes, food bags, ketchup). Items never counted show status `unset` (no POS alerts).
+- deal_parts: deals parsed from details; pizza slots default Fajita. order_items.pz JSON: chosen flavour/topping; server prices it
+  (`pizza_upgrade` setting: M Elite+100 Premium+200, L Elite+100 Premium+300; `pizza_toppings` 100,200,300). Topping has no stock yet.
+- Admin > Stock: bulk opening count, pack size, recipe editor in g/ml with 🛵 flag, Dough recipe box.
+- Missing: Russian Salad recipe, student deals' 330ml drink, cold drink brand, topping ingredients.

@@ -21,7 +21,7 @@ function when(s) { // "YYYY-MM-DD HH:MM:SS" -> "16-10-2026 09:48 PM"
 const lineName = i => esc(i.item_name) + (i.variant_label ? ` (${esc(i.variant_label)})` : '');
 
 function bill(o, S, L) {
-  const items = o.items.map(i => `<div class="it"><span>${lineName(i)}</span><span class="q">${i.qty}</span><span class="a">${i.price * i.qty}</span></div>${i.extras_price ? `<div class="it x"><span>+ ${esc(i.extras || L.xtra)}</span><span class="q"></span><span class="a">${i.extras_price}</span></div>` : ''}`).join('');
+  const items = o.items.map(i => `<div class="it"><span>${lineName(i)}</span><span class="q">${i.qty}</span><span class="a">${i.price * i.qty}</span></div>${i.extras_price ? `<div class="it x"><span>${i.extras ? i.extras.split(' | ').map(x => '+ ' + esc(x)).join('<br>') : '+ ' + L.xtra}</span><span class="q"></span><span class="a">${i.extras_price}</span></div>` : ''}`).join('');
   return `<div class="slip${L.cls}">
     <div class="c shop">${esc(S.shop_name)}</div>
     <div class="c small">${esc(S.shop_tagline)}</div>
@@ -52,7 +52,7 @@ function bill(o, S, L) {
 
 function kitchen(o, L) {
   const items = o.items.map(i => `<div class="k"><span class="q">${i.qty} ×</span> ${lineName(i)}
-    ${i.details ? `<small>${esc(i.details)}</small>` : ''}${i.extras ? `<div class="extra">+ ${L.extra}${esc(i.extras)}</div>` : ''}${i.note ? `<div class="note">${L.note}${esc(i.note)}</div>` : ''}</div>`).join('');
+    ${i.details ? `<small>${esc(i.details)}</small>` : ''}${i.extras ? `<div class="extra">${i.extras.split(' | ').map(x => '+ ' + esc(x)).join('<br>')}</div>` : ''}${i.note ? `<div class="note">${L.note}${esc(i.note)}</div>` : ''}</div>`).join('');
   return `<div class="slip${L.cls}">
     ${chg(o, L)}<div class="c title">${L.kitchen}</div>
     <div class="c big">#${o.order_no}</div>

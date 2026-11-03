@@ -135,3 +135,24 @@ a.btn{color:inherit}
 .chip{position:relative}
 .chip .stb{display:block;font-size:11px;font-weight:800;margin-top:2px;color:#f5c04a}
 .chip.stout{opacity:.7;border-color:#8a3a3a}.chip.stout .stb{color:#ffb4a8}
+
+/* pizza flavour (deal) + extra topping */
+.pzbox{display:flex;flex-direction:column;gap:6px}
+.pzrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pzlbl{font-size:13px;opacity:.8}
+.pztops{display:flex;gap:6px}
+.pztp{background:var(--panel);border:1.5px solid var(--line);color:var(--text);border-radius:8px;padding:6px 12px;font-weight:700}
+.pztp.on{background:#e8b94c;color:#111;border-color:#e8b94c}
+.pzhead{display:flex;justify-content:space-between;align-items:center;gap:8px;text-align:left;background:var(--panel);border:1.5px solid var(--line);color:var(--text);border-radius:9px;padding:8px 10px;font-size:14px}
+.pzhead i{color:#e8b94c;font-style:normal;font-weight:700}
+.pzhead .pzbtn{flex:none;color:#e8b94c;font-weight:700;font-size:13px}
+.pzhead.open{border-color:#e8b94c}
+.pzslot{display:flex;flex-wrap:wrap;gap:6px;padding-left:6px;border-left:3px solid #e8b94c}
+.pzfl{flex:1 1 100%;text-align:left;background:var(--panel);border:1.5px solid var(--line);color:var(--text);border-radius:9px;padding:7px 10px;font-size:14px}
+.pzfl.up{border-color:#e8b94c}.pzfl i{color:#e8b94c;font-style:normal;font-weight:700}.pzfl small{opacity:.7}
+.pzsheet{max-width:720px}
+.pzg{margin:12px 0 6px;font-weight:700}.pzg span{color:#e8b94c;font-size:13px;margin-left:6px}.pzg span.f{opacity:.6;color:inherit}
+.pzgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px}
+.pzopt{background:var(--panel2);border:1.5px solid var(--line);color:var(--text);border-radius:9px;padding:10px 6px;font-weight:600}
+.pzopt.on{background:#e8b94c;color:#111;border-color:#e8b94c}
+.pzclose{margin-top:12px;width:100%}
