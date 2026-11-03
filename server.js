@@ -89,7 +89,8 @@ addCol('stock_items', 'pack_size', 'real default 0');    // 1 pack = itni unit (
 addCol('stock_items', 'pack_name', "text default ''");
 addCol('stock_items', 'is_prep', 'integer default 0');   // Dough: apna stock nahi, is ka saman minus hota hai
 addCol('stock_items', 'prep_yield', 'real default 0');   // 1 batch ka wazan (g)
-addCol('recipes', 'away', 'integer default 0');          // 1 = sirf takeaway/delivery par (packing)
+addCol('recipes', 'away', 'integer default 0');
+addCol('stock_items', 'rate', 'real default 0');         // Rs per unit (kg/litre/piece), aakhri "Saman aaya" se          // 1 = sirf takeaway/delivery par (packing)
 addCol('order_items', 'pz', "text default ''");          // deal ke pizza flavour + topping
 db.exec(`
 create table if not exists prep_recipes(prep_id integer not null, item_id integer not null, qty real not null, primary key(prep_id,item_id));
@@ -140,10 +141,11 @@ const DEFAULTS = {
   restore_1850_done: '',          // (internal) ghalti se delete hui Deal Rs 1850 aik baar wapas
   pizza_upgrade: '{"M":{"Elite Flavours":100,"Premium Flavours":200},"L":{"Elite Flavours":100,"Premium Flavours":300}}', // deal mein flavour badalne ke paise
   pizza_toppings: '100,200,300',  // extra topping ke button (Rs)
-  stock_v2_done: '',              // (internal) recipes/stock v2 aik baar
+  stock_v2_done: '',
+  stock_v2b_done: '',             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done']);
+const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done']);
+const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -361,7 +363,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 const num = v => { const n = Number(v); return Number.isFinite(n) ? n : 0; };
 const r2 = n => Math.round(n * 100) / 100;
 // Kis order line se kaunsa saman kitna minus ho (deal ke hisse, pizza flavour, Dough ka saman, takeaway packing)
-function stockNeed(lines, type) {
+function stockNeed(lines, type, direct) {
   const Q = {
     rec: db.prepare('select item_id,qty,away from recipes where variant_id=?'),
     parts: db.prepare('select part_vid,qty,slot from deal_parts where variant_id=? order by id'),
@@ -383,6 +385,7 @@ function stockNeed(lines, type) {
   // extra topping ka saman (recipes-seed.js TOPPING)
   const TOP = require('./recipes-seed').TOPPING, byName = db.prepare('select id,sub_per from stock_items where active=1 and is_prep=0 and lower(name)=lower(?)');
   const addTop = (rs, mult) => Object.entries(TOP[rs] || {}).forEach(([n, g]) => { const it = byName.get(n); if (it) tot[it.id] = (tot[it.id] || 0) + (it.sub_per ? g / it.sub_per : g) * mult; });
+  if (direct) Object.entries(direct).forEach(([id, q]) => addItem(int(id), q));
   lines.forEach(l => { if (l.vid) { const z = parsePz(l.pz); addVariant(l.vid, l.qty, z && z.s, 0); if (z && z.s) z.s.forEach(x => { if (x.top) addTop(x.top, l.qty); }); } });
   return tot;
 }
@@ -410,7 +413,7 @@ function stockList() {
     else if (b <= 0) status = 'out';
     else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= 2)) status = 'low';
     return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status,
-      sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '' };
+      sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0 };
   });
 }
 app.get('/api/stock/alerts', (req, res) => {
@@ -821,6 +824,7 @@ admin.put('/stock/items/:id', (req, res) => {
   const b = req.body || {};
   if (b.min_level !== undefined) db.prepare('update stock_items set min_level=? where id=?').run(Math.max(0, num(b.min_level)), req.params.id);
   if (b.unit) db.prepare('update stock_items set unit=? where id=?').run(String(b.unit).slice(0, 12), req.params.id);
+  if (b.rate !== undefined) db.prepare('update stock_items set rate=? where id=?').run(Math.max(0, num(b.rate)), req.params.id);
   if (b.pack_size !== undefined) db.prepare('update stock_items set pack_size=?, pack_name=? where id=?').run(Math.max(0, num(b.pack_size)), String(b.pack_name || '').slice(0, 30), req.params.id);
   res.json({ ok: true });
 });
@@ -864,6 +868,7 @@ admin.post('/stock/in', (req, res) => {
       logEvent('expense', `${date} Saman (stock): Rs ${amount} (${note})`);
     }
     db.prepare("insert into stock_moves(item_id,qty,kind,expense_id,date,note,created_at) values(?,?,'in',?,?,?,?)").run(it.id, qty, eid, date, amount > 0 ? `Rs ${amount}` : '', now);
+    if (amount > 0) db.prepare('update stock_items set rate=? where id=?').run(amount / qty, it.id);   // nayi qeemat
   })();
   syncSoon();
   res.json({ ok: true });
@@ -899,6 +904,26 @@ admin.post('/stock/from-menu', (req, res) => {
   res.json({ made, linked });
 });
 // Recipes final hain (recipes-seed.js); admin se badli nahi ja saktin
+// Recipe ki lagat: har saman ki qeemat (aakhri khareed ke rate se) + kul (Dine-in / Takeaway)
+admin.get('/recipe-cost/:vid', (req, res) => {
+  const vid = int(req.params.vid), v = db.prepare('select v.price,v.label,i.name from variants v join items i on i.id=v.item_id where v.id=?').get(vid);
+  if (!v) return res.status(404).json({ error: 'Nahi mila' });
+  const items = Object.fromEntries(db.prepare('select * from stock_items').all().map(i => [i.id, i]));
+  const missing = new Set();
+  const costOf = tot => Object.entries(tot).reduce((t, [id, q]) => { const it = items[id]; if (!it || !(it.rate > 0)) { if (it && q > 0) missing.add(it.name); return t; } return t + q * it.rate; }, 0);
+  const one = (id, q) => { const it = items[id]; if (!it) return 0; if (!it.is_prep) return costOf({ [id]: q }); return costOf(stockNeed([], 'dinein', { [id]: q })); };
+  const rows = db.prepare('select item_id,qty,away from recipes where variant_id=?').all(vid).map(r => {
+    const it = items[r.item_id] || {};
+    return { name: it.name || '?', qty: r.qty, unit: it.unit, sub_unit: it.sub_unit, sub_per: it.sub_per, rate: it.rate || 0, prep: !!it.is_prep, away: r.away, cost: Math.round(one(r.item_id, r.qty) * 100) / 100 };
+  });
+  db.prepare('select d.part_vid,d.qty,d.slot,i.name,v.label from deal_parts d join variants v on v.id=d.part_vid join items i on i.id=v.item_id where d.variant_id=? order by d.id').all(vid).forEach(p => {
+    const l = [{ vid: p.part_vid, qty: p.qty }];
+    rows.push({ name: `${p.slot ? p.slot + ' Pizza (' + p.name + ')' : p.name + (p.label ? ' ' + p.label : '')}`, qty: p.qty, unit: 'deal', part: true,
+      cost: Math.round(costOf(stockNeed(l, 'dinein')) * 100) / 100, away_cost: Math.round(costOf(stockNeed(l, 'takeaway')) * 100) / 100 });
+  });
+  const dine = costOf(stockNeed([{ vid, qty: 1 }], 'dinein')), away = costOf(stockNeed([{ vid, qty: 1 }], 'takeaway'));
+  res.json({ name: v.name, label: v.label, price: v.price, rows, dine: Math.round(dine), away: Math.round(away), missing: [...missing] });
+});
 
 // ----- expenses -----
 admin.get('/expenses', (req, res) => {
@@ -1134,6 +1159,15 @@ function seedStockV2() {
   } catch (e) { console.error('stock v2:', e.message); }
 }
 seedStockV2();
+// Pack size theek (owner, 3 Nov): Maida thela 50kg, Nuggets 50, F1/F2 aik aik. Sirf purani default value ho to badlo
+try {
+  if (!getSettings().stock_v2b_done) {
+    const up = db.prepare('update stock_items set pack_size=?, pack_name=? where name=? and pack_size=?');
+    up.run(50, 'Thela 50kg', 'Maida', 0); up.run(50, 'Pack', 'Nuggets', 35);
+    up.run(1, 'Piece', 'F1 Packing', 0); up.run(1, 'Piece', 'F2 Packing', 0);
+    setSetting('stock_v2b_done', fmtDT(new Date()));
+  }
+} catch (e) { console.error('stock v2b', e.message); }
 // Owner: menu card wala naam "Lazania" hi sahi hai (v1.11.0 ne Lasagna kar diya tha, wapas)
 try {
   db.prepare("update items set name='Lazania' where name='Lasagna'").run();

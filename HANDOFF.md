@@ -38,3 +38,7 @@ Chrome kiosk app: tray "Open POS" or `start.bat` (`--kiosk-printing`). POS has i
   (`pizza_upgrade` setting: M Elite+100 Premium+200, L Elite+100 Premium+300; `pizza_toppings` 100,200,300). Topping has no stock yet.
 - Admin > Stock: bulk opening count, pack size, recipe editor in g/ml with 🛵 flag, Dough recipe box.
 - Missing: Russian Salad recipe, student deals' 330ml drink, cold drink brand, topping ingredients.
+- v1.12.0: stock_items.rate (Rs/unit, set from last "Saman aaya" with Rs, or Rate button); Admin recipe view shows cost per row
+  + totals dine-in/takeaway + margin (`/api/admin/recipe-cost/:vid`), Dough cost per batch/kg/size. Stock groups folded
+  (Raw saman, Packing first) with red short-count; Saman aaya only Raw saman/Packing; Kharcha page no longer adds stock.
+  Pack fixes once (`stock_v2b_done`): Maida 50kg, Nuggets 50, F1/F2 = 1.

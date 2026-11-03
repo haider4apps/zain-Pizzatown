@@ -176,11 +176,10 @@ async function viewExpenses() {
   const sum = list.reduce((s, x) => s + x.amount, 0);
   view.innerHTML = `<div class="box"><b style="color:var(--gold)">Kharcha likhein</b>
     <div class="r"><input type="date" id="eDate" value="${day}"><select id="eCat"><option value="">Kharcha kis cheez ka? (chunein)</option>
-      <optgroup label="Menu / stock ka saman">${grpList(mcats, st).map(g => `<option value="g:${esc(g)}">${esc(g)}</option>`).join('')}</optgroup>
-      <optgroup label="Dusre kharche">${EXP_CATS.map(c => `<option value="${c}">${c}</option>`).join('')}</optgroup></select></div>
+      ${EXP_CATS.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
     <div class="r" id="eStockRow" hidden><select id="eStock"><option value="">Item chunein</option></select><input id="eQty" type="number" step="any" min="0" placeholder="Kitne aaye (tadaad)"></div>
     <div class="r"><input id="eAmt" type="number" min="1" placeholder="Kul kitne Rs diye"><input id="eNote" placeholder="Note (zaroori nahi)"><button class="btn gold s" id="eAdd">+ Add</button></div>
-    <small style="color:var(--mute)">Ek entry = ek kharcha. Saman khareeda ho to wo stock mein bhi khud barh jata hai.</small></div>
+    <small style="color:var(--mute)">Ek entry = ek kharcha. Saman (cheese, dabbe wagera) <b>Stock → Saman aaya</b> se likhein, wahan se kharcha bhi khud ban jata hai.</small></div>
     <div class="box"><div class="r"><b style="flex:1 1 auto">${mode === 'day' ? day + ' ka' : month + ' ka'} kharcha: ${money(sum)}</b>
       <input type="date" id="vDate" class="n" value="${day}"><button class="btn s${mode === 'day' ? ' gold' : ''}" id="vDay">Sirf yeh din</button><button class="btn s${mode === 'month' ? ' gold' : ''}" id="vMon">Poora mahina</button></div><table><tr><th>Date</th><th>Category</th><th>Note</th><th>Rs</th><th></th></tr>
     ${list.map(x => `<tr><td>${x.date}</td><td>${esc(x.category)}</td><td>${esc(x.note)}</td><td>${money(x.amount)}</td><td><button class="btn red" data-act="dx" data-id="${x.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--mute)">—</td></tr>'}</table></div>`;
@@ -249,17 +248,21 @@ async function viewStock() {
   const opt = items.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('');
   const cats = [...new Set(rc.variants.map(v => v.cat))];
   const grpOpts = ['Raw saman', 'Packing'].concat(cats).map(c => `<option>${esc(c)}</option>`).join('');
-  const groups = [...new Set(items.map(i => i.grp || 'Dusra'))];
+  const GORD = ['Raw saman', 'Packing'];
+  const groups = [...new Set(GORD.concat(items.map(i => i.grp || 'Dusra')))].filter(g => items.some(i => (i.grp || 'Dusra') === g));
+  const short = g => items.filter(i => (i.grp || 'Dusra') === g && (i.status === 'out' || i.status === 'low')).length;
+  const rateTxt = i => (i.rate ? `Rs ${Math.round(i.rate * (i.pack_size || 1))}/${i.pack_size ? (i.pack_name || 'pack') : i.unit}` : 'Rate?');
+  window._open = window._open || {};
   const packTxt = i => (i.pack_size ? `${i.pack_name || 'Pack'} = ${i.pack_size} ${i.unit}` : 'Pack size?');
   view.innerHTML = `
   <div class="box"><b style="color:var(--gold)">Stock ki halat</b>
-    <table><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din</th><th>Halat</th><th></th></tr>
-    ${groups.map(g => `<tr><td colspan="6" style="color:var(--gold);font-weight:700;padding-top:12px">${esc(g)}</td></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => { const t = ST_TXT[i.status]; return `<tr><td>${esc(i.name)}</td><td><b>${qtyTxt(i, i.bal)}</b></td><td>${i.per_day ? fmtQ(i, i.per_day) : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
+    ${groups.map(g => `<details class="sg" data-g="${esc(g)}"${window._open[g] ? ' open' : ''}><summary><span>${esc(g)}</span> <small style="color:var(--mute)">(${items.filter(i => (i.grp || 'Dusra') === g).length} items)</small>${short(g) ? `<span class="redc">${short(g)}</span>` : ''}</summary>
+    <table><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din</th><th>Halat</th><th></th></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => { const t = ST_TXT[i.status]; return `<tr><td>${esc(i.name)}</td><td><b>${qtyTxt(i, i.bal)}</b></td><td>${i.per_day ? fmtQ(i, i.per_day) : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
       <td><span style="background:${t[2]};color:${t[1]};border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px">${t[0]}</span></td>
-      <td style="white-space:nowrap"><button class="btn s" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}" data-u="${i.unit}">Ginti</button> <button class="btn s" data-act="min" data-id="${i.id}" data-m="${i.min_level}" data-n="${esc(i.name)}" data-u="${i.unit}">Kam-az-kam: ${i.min_level} ${i.unit}</button> <button class="btn s" data-act="pack" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || ''}" data-pn="${esc(i.pack_name || '')}">${esc(packTxt(i))}</button></td></tr>`; }).join('')).join('') || '<tr><td colspan="6" style="color:var(--mute)">Abhi koi item nahi. Neeche se banayen.</td></tr>'}</table>
+      <td style="white-space:nowrap"><button class="btn s" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}" data-u="${i.unit}">Ginti</button> <button class="btn s" data-act="min" data-id="${i.id}" data-m="${i.min_level}" data-n="${esc(i.name)}" data-u="${i.unit}">Kam-az-kam: ${i.min_level} ${i.unit}</button> <button class="btn s" data-act="pack" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || ''}" data-pn="${esc(i.pack_name || '')}">${esc(packTxt(i))}</button> <button class="btn s" data-act="rate" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || 0}" data-pn="${esc(i.pack_name || 'pack')}" data-r="${i.rate || 0}">${esc(rateTxt(i))}</button></td></tr>`; }).join('') + '</table></details>').join('') || '<div style="color:var(--mute)">Abhi koi item nahi.</div>'}
     <small style="color:var(--mute)">"Kitne din" pichle 7 din ki sale se nikalta hai. "Ginti" = asal bacha hua likhein, farq khud theek ho jata hai. Dabba, food bag aur ketchup sirf Takeaway/Delivery par minus hote hain. Butter paper, foil aur pasta packing har order par.</small></div>
   <div class="box"><b style="color:var(--gold)">Saman aaya (+)</b>
-    <div class="r"><select id="iGrp"><option value="">Group</option>${grpList(cats, items).map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="iItem" disabled><option value="">Pehle group chunein</option></select><input id="iPacks" type="number" step="any" min="0" placeholder="Kitne pack"><input id="iQty" type="number" step="any" min="0" placeholder="ya kul miqdar"><input id="iAmt" type="number" min="0" placeholder="Rs (khali = kharcha nahi)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
+    <div class="r"><select id="iGrp"><option value="">Kya aaya?</option>${GORD.map(g => `<option>${esc(g)}</option>`).join('')}</select><select id="iItem" disabled><option value="">Pehle group chunein</option></select><input id="iPacks" type="number" step="any" min="0" placeholder="Kitne pack"><input id="iQty" type="number" step="any" min="0" placeholder="ya kul miqdar"><input id="iAmt" type="number" min="0" placeholder="Rs (khali = kharcha nahi)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
     <small style="color:var(--mute)" id="iHint">Pack size set ho to sirf "Kitne pack" likhein (maslan 3), kg khud ban jayenge. Rs likhne par ye Kharcha mein bhi darj ho jata hai.</small></div>
   <div class="box"><b style="color:var(--gold)">Shuru ka stock / sab ki ginti (aik saath)</b>
     <small style="color:var(--mute)">Jo saman abhi dukaan mein hai us ki miqdar likhein (kg / litre / piece). Khali chhorein to wo item nahi badlega.</small>
@@ -288,9 +291,22 @@ async function viewStock() {
       return `<tr><td>${esc(it ? it.name : '?')}</td><td><b>${+(r.qty * (sp || 1)).toFixed(2)}</b> ${it ? (it.sub_unit || it.unit) : ''}</td>${withAway ? `<td style="color:var(--mute)">${r.away ? '🛵 sirf Takeaway/Delivery' : 'har order'}</td>` : ''}</tr>`; }).join('')}</table>`
       : '<small style="color:var(--mute)">Is ki recipe nahi hai.</small>';
   };
-  preps.forEach(p => showRows($('#pBox' + p.id), p.rows, false));
+  // Dough: har saman ki qeemat (aakhri "Saman aaya" ke rate se) + 1 batch, 1 kg aur har size ka kharcha
+  preps.forEach(p => {
+    let tot = 0; const miss = [];
+    const rows = p.rows.map(r => { const it = byId[String(r.item_id)] || {}, sp = subOf(it), c = it.rate ? r.qty * it.rate : null; if (c === null) miss.push(it.name); else tot += c;
+      return `<tr><td>${esc(it.name || '?')}</td><td><b>${+(r.qty * (sp || 1)).toFixed(2)}</b> ${it.sub_unit || it.unit || ''}</td><td>${c === null ? '<span style="color:var(--mute)">rate?</span>' : 'Rs ' + c.toFixed(1)}</td></tr>`; }).join('');
+    const perG = p.prep_yield ? tot / p.prep_yield : 0, sz = [['Large', 480], ['Medium', 280], ['Small', 160], ['Behari Roll', 120]];
+    $('#pBox' + p.id).innerHTML = `<table><tr><th>Saman</th><th>Miqdar</th><th>Qeemat</th></tr>${rows}</table>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:8px;margin-top:8px">
+        <div class="box" style="padding:10px"><small style="color:var(--mute)">1 batch (${p.prep_yield} g)</small><b style="font-size:20px">Rs ${Math.round(tot)}</b></div>
+        <div class="box" style="padding:10px"><small style="color:var(--mute)">1 kg dough</small><b style="font-size:20px">Rs ${Math.round(perG * 1000)}</b></div>
+        ${sz.map(([n, g]) => `<div class="box" style="padding:10px"><small style="color:var(--mute)">${n} (${g} g)</small><b style="font-size:20px">Rs ${(perG * g).toFixed(1)}</b></div>`).join('')}</div>
+      ${miss.length ? `<small style="color:#f5c04a">⚠ In ka rate abhi nahi (kharcha pura nahi): ${miss.map(esc).join(', ')}</small>` : ''}`;
+  });
 
-  $('#iGrp').onchange = () => { const g = $('#iGrp').value; $('#iItem').disabled = !g; $('#iItem').innerHTML = g ? grpItems(items, g, rc.variants) : '<option value="">Pehle group chunein</option>'; };
+  view.querySelectorAll('details.sg').forEach(d => d.addEventListener('toggle', () => { window._open[d.dataset.g] = d.open; }));
+  $('#iGrp').onchange = () => { const g = $('#iGrp').value; $('#iItem').disabled = !g; $('#iItem').innerHTML = g ? grpItems(items, g, []) : '<option value="">Pehle group chunein</option>'; };
   const iHint = () => { const it = byId[$('#iItem').value], n = +$('#iPacks').value, q = +$('#iQty').value;
     $('#iHint').textContent = !it ? '' : n > 0 && it.pack_size ? `${n} ${it.pack_name || 'pack'} = ${qtyTxt(it, n * it.pack_size)} stock mein judega`
       : q > 0 ? `${qtyTxt(it, q)} stock mein judega` : it.pack_size ? `1 ${it.pack_name || 'pack'} = ${qtyTxt(it, it.pack_size)}. "Kitne pack" likhein, ya kul ${it.unit} likhein.` : `Is ka pack size nahi. Kul ${it.unit} likhein.`;
@@ -321,12 +337,29 @@ async function viewStock() {
     if (!v) return;
     if (v.parts.length) box.insertAdjacentHTML('beforeend', `<div style="margin:8px 0;padding:8px 10px;border-left:3px solid var(--gold)"><b>Is deal mein:</b> ${v.parts.map(esc).join(' · ')}<br><small style="color:var(--mute)">In ka saman un ki apni recipe se minus hota hai. Pizza ka flavour order ke waqt badla ja sakta hai.</small></div>`);
     const eb = document.createElement('div'); box.appendChild(eb);
-    if (v.recipe.length || !v.parts.length) showRows(eb, v.recipe, true);
+    guard(async () => {
+      const c = await A('/recipe-cost/' + v.id), rs = n => 'Rs ' + (+n).toFixed(n < 10 ? 1 : 0);
+      const q = r => (r.part ? `${+r.qty}` : r.sub_per ? `${+(r.qty * r.sub_per).toFixed(1)} ${r.sub_unit}` : `${+(+r.qty).toFixed(2)} ${r.unit}`);
+      eb.innerHTML = c.rows.length ? `<table><tr><th>Saman</th><th>Miqdar</th><th>Qeemat</th><th></th></tr>${c.rows.map(r => `<tr><td>${esc(r.name)}</td><td><b>${q(r)}</b></td>
+        <td>${r.cost || r.part ? rs(r.cost) + (r.part && r.away_cost !== r.cost ? ` <small style="color:var(--mute)">(🛵 ${rs(r.away_cost)})</small>` : '') : '<span style="color:var(--mute)">rate?</span>'}</td>
+        <td style="color:var(--mute)">${r.part ? 'deal ka hissa' : r.away ? '🛵 sirf Takeaway/Delivery' : 'har order'}</td></tr>`).join('')}</table>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:8px;margin-top:8px">
+          <div class="box" style="padding:10px"><small style="color:var(--mute)">Kul kharcha · Dine-in</small><b style="font-size:20px">Rs ${c.dine}</b></div>
+          <div class="box" style="padding:10px"><small style="color:var(--mute)">Kul kharcha · Takeaway / Delivery</small><b style="font-size:20px">Rs ${c.away}</b></div>
+          <div class="box" style="padding:10px"><small style="color:var(--mute)">Menu qeemat · bachat (Dine-in / Takeaway)</small><b style="font-size:20px">Rs ${c.price}</b><small>Rs ${c.price - c.dine} / Rs ${c.price - c.away}</small></div></div>
+        ${c.missing.length ? `<small style="color:#f5c04a">⚠ In ka rate abhi nahi (kul kharcha pura nahi): ${c.missing.map(esc).join(', ')}. Rate "Saman aaya" mein Rs likhne se khud lag jata hai, ya upar table se "Rate?" dabayein.</small>` : ''}`
+        : '<small style="color:var(--mute)">Is ki recipe nahi hai.</small>';
+    });
   };
   view.onclick = e => guard(async () => {
     const b = e.target.closest('[data-act]'); if (!b) return;
     if (b.dataset.act === 'cnt') { countDialog(items.find(x => String(x.id) === b.dataset.id), viewStock); return; }
     if (b.dataset.act === 'min') { const c = prompt(`${b.dataset.n}: kam-az-kam kitna hona chahiye? (${b.dataset.u} mein. Isse kam ho to alert aayega)`, b.dataset.m); if (c === null) return; await A('/stock/items/' + b.dataset.id, 'PUT', { min_level: c }); viewStock(); }
+    if (b.dataset.act === 'rate') {
+      const per = +b.dataset.p ? b.dataset.pn : b.dataset.u, cur = Math.round(+b.dataset.r * (+b.dataset.p || 1));
+      const c = prompt(`${b.dataset.n}: 1 ${per} kitne Rs ka aata hai?`, cur || ''); if (c === null || c === '') return;
+      await A('/stock/items/' + b.dataset.id, 'PUT', { rate: +c / (+b.dataset.p || 1) }); toast('Rate save ✓'); viewStock(); return;
+    }
     if (b.dataset.act === 'pack') {
       const c = prompt(`${b.dataset.n}: 1 pack mein kitne ${b.dataset.u}? (maslan 2)`, b.dataset.p); if (c === null) return;
       const n = prompt('Pack ka naam (maslan Packet, Dabba, Gallon, Carton)', b.dataset.pn || 'Pack'); if (n === null) return;
