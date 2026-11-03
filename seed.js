@@ -21,7 +21,7 @@ module.exports = function seed(db) {
       ...pizza(['Fajita', 'Tikka', 'Bonfire', 'Supreme', 'B.B.Q'], 'Pure Flavours', [['S', 550], ['M', 1050], ['L', 1400]]),
       ...pizza(['Stuff Crust', 'Creamy Booster', 'Nawabi', 'Cheese Lover', 'Malai Boti', 'Kabab Flower',
         'Crown Crust', 'Kabab Crown', 'Prime Kabab Crust'], 'Elite Flavours', [['M', 1150], ['L', 1500]]),
-      ...pizza(['Premium Special', 'Zinger Booster', 'Lasagna Pizza', 'Star Pizza', 'Drone Pizza', 'Royal Twisto'],
+      ...pizza(['Premium Special', 'Zinger Booster', 'Lazania Pizza', 'Star Pizza', 'Drone Pizza', 'Royal Twisto'],
         'Premium Flavours', [['M', 1250], ['L', 1700]]),
     ] },
     { name: 'Burgers', ur: 'برگر', items: [
@@ -44,7 +44,7 @@ module.exports = function seed(db) {
     ] },
     { name: 'Pasta & Salad', ur: 'پاستا اور سلاد', items: [
       S('Macaroni Pasta', [['Small', 450], ['Large', 700]], 'Pasta'), S('Crunchy Pasta', [['Small', 550], ['Large', 750]], 'Pasta'),
-      S('Kababish Pasta', [['Small', 550], ['Large', 800]], 'Pasta'), S('Lasagna', [['Large', 900]], 'Pasta'),
+      S('Kababish Pasta', [['Small', 550], ['Large', 800]], 'Pasta'), S('Lazania', [['Large', 900]], 'Pasta'),
       S('Russian Salad', [['M', 300], ['L', 500]], 'Salad'),
     ] },
     // Drinks ki qeematein abhi 0 hain; admin panel se daal dein. Brand/flavour bhi wahin se add honge.

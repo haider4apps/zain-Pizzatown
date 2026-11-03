@@ -17,7 +17,7 @@ const ITEMS = [
   ['Boneless Thai', 'piece', '', 0, G, 20, 'Pack 2kg'], ['Chicken Patty', 'piece', '', 0, G, 12, 'Pack'], ['Chapli Patty', 'piece', '', 0, G, 12, 'Pack'],
   ['Zestful Chicken Strips', 'piece', '', 0, G, 16, 'Pack'], ['Burger Bun', 'piece', '', 0, G, 2, 'Pack'], ['Tortilla Bread', 'piece', '', 0, G, 8, 'Pack'],
   ['Shawarma Bread', 'piece', '', 0, G, 4, 'Pack'], ['Plain Paratha', 'piece', '', 0, G, 30, 'Pack'],
-  ['Lasagna Strip', 'piece', '', 0, G, 16, 'Pack'], ['Burger Cheese Slice', 'piece', '', 0, G, 30, 'Pack'],
+  ['Lazania Strip', 'piece', '', 0, G, 16, 'Pack'], ['Burger Cheese Slice', 'piece', '', 0, G, 30, 'Pack'],
   ['Foil', 'kg', 'g', 1000, P, 2, 'Pack 2kg'], ['Butter Paper', 'piece', '', 0, P, 200, 'Pack'], ['Food Bag', 'piece', '', 0, P, 50, 'Pack'],
   ['Pizza Box L', 'piece', '', 0, P, 50, 'Pack'], ['Pizza Box M', 'piece', '', 0, P, 50, 'Pack'], ['Pizza Box S', 'piece', '', 0, P, 50, 'Pack'],
   ['F1 Packing', 'piece', '', 0, P, 0, ''], ['F2 Packing', 'piece', '', 0, P, 0, ''], ['Ketchup Sachet', 'piece', '', 0, P, 100, 'Pack'],
@@ -35,7 +35,7 @@ const PREMIUM = {
   'Royal Twisto': { L: { c: 140, ch: 260, s: 170, k: 4, sg: 10 }, M: { c: 140, ch: 140, s: 120, k: 4, sg: 20 } },
   'Premium Special': { L: { c: 180, ch: 300, s: 160, sg: 20 }, M: { c: 180, ch: 260, s: 120, sg: 10 } },
   'Zinger Booster': { L: { c: 180, hs: 12, s: 180, sg: 20 }, M: { c: 140, hs: 12, s: 180, sg: 30 } },
-  'Lasagna Pizza': { L: { c: 180, ch: 280, s: 160, sg: 20 }, M: { c: 120, ch: 240, s: 170, sg: 10 } },
+  'Lazania Pizza': { L: { c: 180, ch: 280, s: 160, sg: 20 }, M: { c: 120, ch: 240, s: 170, sg: 10 } },
   'Creamy Booster': { L: { c: 160, ch: 190, s: 120, sg: 10 }, M: { c: 180, ch: 160, s: 180 } },
   'Nawabi': { L: { c: 160, ch: 190, s: 120, sg: 10 }, M: { c: 160, ch: 160, s: 160, sg: 10 } },
   'Cheese Lover': { L: { c: 160, ch: 190, s: 120 }, M: { c: 100, ch: 160, s: 120 } },
@@ -68,7 +68,7 @@ function recipes() {
     add(n, 'Large', { Macaroni: 120, Cheese: 70, Chicken: 100, 'Real Wardha': 120, 'F2 Packing': 1, ...(extra.L || {}) }, { 'Ketchup Sachet': 4 });
   };
   pasta('Macaroni Pasta', {}); pasta('Crunchy Pasta', { L: { 'Hot Shot': 4 } }); pasta('Kababish Pasta', { S: { 'Seekh Kabab': 1 }, L: { 'Seekh Kabab': 1 } });
-  add('Lasagna', 'Large', { 'Lasagna Strip': 3, Cheese: 80, Chicken: 120, 'Real Wardha': 120, 'F2 Packing': 1 }, { 'Ketchup Sachet': 4 });
+  add('Lazania', 'Large', { 'Lazania Strip': 3, Cheese: 80, Chicken: 120, 'Real Wardha': 120, 'F2 Packing': 1 }, { 'Ketchup Sachet': 4 });
   const wrapAway = { 'Food Bag': 1, 'Ketchup Sachet': 2 };
   add('Premium Wrap', '', { 'Boneless Thai': 1, Fries: 20, 'Burger Cheese Slice': 1, 'Tortilla Bread': 1, "Young's Creme Mayo": 70, Foil: 8 }, { ...wrapAway, 'Pizza Box S': 1 });
   add('Seekh Kabab Wrap', '', { 'Seekh Kabab': 3, Fries: 20, 'Burger Cheese Slice': 1, 'Tortilla Bread': 1, "Young's Creme Mayo": 70, Foil: 8 }, wrapAway);
@@ -96,8 +96,7 @@ function recipes() {
   add('Tender Burger', '', { 'Burger Bun': 1, 'Zestful Chicken Strips': 1, "Young's Creme Mayo": 50, 'Butter Paper': 1 }, bAway);
   return out;
 }
-const RENAMES = [['Oven Backed Wings', 'Oven Baked Wings'], ['Double Deckar', 'Double Decker'], ['Pratha Roll', 'Paratha Roll'],
-  ['Lazania Pizza', 'Lasagna Pizza'], ['Lazania', 'Lasagna']];
+const RENAMES = [['Oven Backed Wings', 'Oven Baked Wings'], ['Double Deckar', 'Double Decker'], ['Pratha Roll', 'Paratha Roll']];
 
 // "Cheese" = Top Cow + Shredded 70/30 aadha aadha; "Chicken" = Pizza Chicken
 function finalRecipes() {

@@ -1134,6 +1134,12 @@ function seedStockV2() {
   } catch (e) { console.error('stock v2:', e.message); }
 }
 seedStockV2();
+// Owner: menu card wala naam "Lazania" hi sahi hai (v1.11.0 ne Lasagna kar diya tha, wapas)
+try {
+  db.prepare("update items set name='Lazania' where name='Lasagna'").run();
+  db.prepare("update items set name='Lazania Pizza' where name='Lasagna Pizza'").run();
+  db.prepare("update stock_items set name='Lazania Strip' where name='Lasagna Strip'").run();
+} catch (e) { console.error('lazania', e.message); }
 
 const server = app.listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
