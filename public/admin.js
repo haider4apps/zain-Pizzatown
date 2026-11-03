@@ -40,7 +40,7 @@ const TIPS = {
   '#dmDays': 'Kitne din ka saman mangwana hai', '#dmPrint': 'Demand slip thermal printer par', '#dmAdd': 'List mein koi aur saman haath se jorein',
   '#go': 'Upar chuni dates ki report', '[data-rng="0"]': 'Aaj ki sale', '[data-rng="7"]': 'Pichle 7 din', '[data-rng="30"]': 'Pichle 30 din',
   '#eAdd': 'Kharcha likhein', '#saveS': 'Settings save karein', '#updCheck': 'GitHub par naya version hai ya nahi', '#updGo': 'Naya version lagayein',
-  '#syncNow': 'Abhi Google Sheet par bhej dein', '#pvS': 'Aakhri order ki slip ka preview', '#impGo': 'Test PC: purane orders ki copy daalein',
+  '#syncNow': 'Abhi Google Sheet par bhej dein', '#pvS': 'Aakhri order ki slip ka preview',
   '#tabs [data-t="menu"]': 'Menu ke items aur qeematein', '#tabs [data-t="sales"]': 'Sale, profit aur orders', '#tabs [data-t="exp"]': 'Roz ke kharche',
   '#tabs [data-t="stock"]': 'Stock, saman aaya, demand slip, recipes', '#tabs [data-t="set"]': 'Shop, printer, Sheet aur update ki settings',
 };
@@ -608,9 +608,6 @@ async function viewSettings() {
   }).join('') + `<button class="btn gold" id="saveS">Save settings</button>
   <button class="btn" id="pvS">Slip preview (aakhri order ki)</button>
   <div class="box" id="syncBox" style="background:var(--panel2)">Sheet sync check ho raha hai...</div>
-  <div class="box" style="background:var(--panel2)"><b style="color:var(--gold)">Purane orders ki copy (sirf test PC ke liye)</b>
-    <small style="color:var(--mute)">Asli Sheet ke orders ki file (developer se mili) yahan daalein, taake test PC par roz ki khapat aur demand asli sale se dikhe. Ye Sheet par nahi jate, stock minus nahi hota, aur jo order pehle se hai wo dobara nahi aata.</small>
-    <div class="r"><input type="file" id="impF" accept=".json"><button class="btn s" id="impGo">Copy daalein</button></div></div>
   <div class="box" id="updBox" style="background:var(--panel2)"><b style="color:var(--gold)">Software update (GitHub)</b><div id="updInfo">...</div>
     <div class="r"><button class="btn s" id="updCheck">Check for update</button><button class="btn gold s" id="updGo" style="display:none">Update karein</button></div></div>
   <div style="color:var(--mute);font-size:13px">Mobile se order lene ke liye PC aur mobile aik hi WiFi par hon, aur mobile ke browser mein PC ka address kholen (server ki black window mein "Mobile par:" ke aage likha hota hai).</div></div>`;
@@ -633,13 +630,6 @@ async function viewSettings() {
       $('#updGo').style.display = u.behind ? '' : 'none';   // latest ho to Update ka button gaib
     } catch (e) { $('#updInfo').textContent = verTxt + (quiet ? '' : ' · ' + e.message); }
   };
-  $('#impGo').onclick = () => guard(async () => {
-    const f = $('#impF').files[0]; if (!f) throw new Error('Pehle file chunein');
-    const j = JSON.parse(await f.text());
-    if (prompt(`${(j.orders || []).length} purane orders test ke liye daalne hain? Tasdeeq ke liye TEST likhein`) !== 'TEST') return;
-    const r = await A('/import-orders', 'POST', { orders: j.orders, confirm: 'TEST' });
-    toast(`${r.added} orders aa gaye, ${r.skipped} pehle se the${r.no_match.length ? '. Menu mein nahi mile: ' + r.no_match.join(', ') : ''}`, 7000);
-  });
   $('#updCheck').onclick = () => guard(() => check(false));
   check(true);   // Settings khulte hi khud check
   $('#updGo').onclick = () => guard(async () => {

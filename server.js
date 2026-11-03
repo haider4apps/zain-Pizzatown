@@ -1071,32 +1071,6 @@ function demandToSheet(force) {
 }
 setTimeout(() => demandToSheet(true), 20000);
 setInterval(() => demandToSheet(false), 30 * 60 * 1000);
-// Test PC: asli Sheet ke purane orders ki copy daalna (sirf naye uid; Sheet par nahi jate, stock minus nahi hota)
-admin.post('/import-orders', (req, res) => {
-  const b = req.body || {};
-  if (b.confirm !== 'TEST') return res.status(400).json({ error: 'Tasdeeq ke liye TEST likhein' });
-  const list = Array.isArray(b.orders) ? b.orders : [];
-  const RN = { 'Double Deckar': 'Double Decker', 'Pratha Roll': 'Paratha Roll', 'Oven Backed Wings': 'Oven Baked Wings' };
-  const findV = db.prepare('select v.id,v.cost from variants v join items i on i.id=v.item_id where lower(i.name)=lower(?) and v.label=? and i.deleted=0 and v.deleted=0');
-  const has = db.prepare('select 1 from orders where uid=?');
-  let added = 0, skipped = 0, noMatch = new Set();
-  db.transaction(() => list.forEach(o => {
-    if (!o.uid || has.get(o.uid)) { skipped++; return; }
-    const oid = db.prepare(`insert into orders(uid,order_no,business_date,type,table_no,customer_name,phone,address,rider,subtotal,discount,delivery_charge,service_charge,total,cost,profit,payment,status,note,printed,print_at,created_at,queued)
-      values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,0,?,?,?,'',1,?,?,0)`).run(o.uid, int(o.order_no), String(o.date || '').slice(0, 10), ['dinein', 'takeaway', 'delivery'].includes(o.type) ? o.type : 'takeaway',
-      String(o.table_no || ''), String(o.customer_name || ''), String(o.phone || ''), String(o.address || ''), String(o.rider || ''), int(o.subtotal), int(o.discount), int(o.delivery_charge), int(o.service_charge),
-      int(o.total), int(o.total), String(o.payment || 'Cash'), o.status === 'cancelled' ? 'cancelled' : 'done', String(o.created_at || ''), String(o.created_at || '')).lastInsertRowid;
-    (o.items || []).forEach(i => {
-      const v = findV.get(RN[i.item] || i.item, String(i.variant || ''));
-      if (!v) noMatch.add(i.item + (i.variant ? ' ' + i.variant : ''));
-      db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price,variant_id,pz) values(?,?,?,\'\',?,0,?,?,\'\',0,?,\'\')')
-        .run(oid, String(i.item || ''), String(i.variant || ''), int(i.price), Math.max(1, int(i.qty, 1)), String(i.note || ''), v ? v.id : null);
-    });
-    added++;
-  }))();
-  USAGE.at = 0; setImmediate(stockAlertCheck);
-  res.json({ ok: true, added, skipped, no_match: [...noMatch] });
-});
 // Recipes final hain (recipes-seed.js); admin se badli nahi ja saktin
 // Recipe ki lagat: har saman ki qeemat (aakhri khareed ke rate se) + kul (Dine-in / Takeaway)
 admin.get('/recipe-cost/:vid', (req, res) => {
