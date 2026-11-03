@@ -98,15 +98,18 @@ function recipes() {
 }
 const RENAMES = [['Oven Backed Wings', 'Oven Baked Wings'], ['Double Deckar', 'Double Decker'], ['Pratha Roll', 'Paratha Roll']];
 
+// Coating ka maida (owner: roz ~10 kg, sale ke hisaab se wazan par taqseem): 1 wing 100 g, 1 Boneless Thai 250 g
+const COAT = { Wings: 100, 'Boneless Thai': 250 };
+function coat(r) { Object.entries(COAT).forEach(([n, g]) => { if (r[n]) r.Maida = (r.Maida || 0) + r[n] * g; }); }
 // "Cheese" = Top Cow + Shredded 70/30 aadha aadha; "Chicken" = Pizza Chicken
 function finalRecipes() {
   const fix = o => { const r = {}; Object.entries(o).forEach(([n, q]) => { if (!q) return;
     if (n === 'Cheese') { r['Top Cow Cheese'] = (r['Top Cow Cheese'] || 0) + q / 2; r['Shredded 70/30 Cheese'] = (r['Shredded 70/30 Cheese'] || 0) + q / 2; }
     else if (n === 'Chicken') r['Pizza Chicken'] = (r['Pizza Chicken'] || 0) + q; else r[n] = (r[n] || 0) + q; }); return r; };
-  return recipes().map(x => ({ ...x, rows: fix(x.rows), away: fix(x.away) }));
+  return recipes().map(x => { const r = fix(x.rows); coat(r); return { ...x, rows: r, away: fix(x.away) }; });
 }
 // Extra topping (Rs -> gram). "Cheese" bhi aadha Top Cow, aadha Shredded
 const TOPPING = { 100: { 'Top Cow Cheese': 15, 'Shredded 70/30 Cheese': 15, 'Pizza Chicken': 30 },
   200: { 'Top Cow Cheese': 30, 'Shredded 70/30 Cheese': 30, 'Pizza Chicken': 60 },
   300: { 'Top Cow Cheese': 40, 'Shredded 70/30 Cheese': 40, 'Pizza Chicken': 80 } };
-module.exports = { ITEMS, DOUGH, recipes: finalRecipes, RENAMES, TOPPING };
+module.exports = { ITEMS, DOUGH, recipes: finalRecipes, RENAMES, TOPPING, COAT };

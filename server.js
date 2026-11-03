@@ -151,10 +151,11 @@ const DEFAULTS = {
   stock_v2_done: '',
   stock_v2b_done: '',
   stock_v2c_done: '',
-  opening_nov4_done: '',          // (internal) 4 Nov wala shuru ka stock aik baar             // (internal) Nuggets pack 35 wapas             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
+  opening_nov4_done: '',
+  coat_maida_done: '',            // (internal) wings/thai coating maida aik baar          // (internal) 4 Nov wala shuru ka stock aik baar             // (internal) Nuggets pack 35 wapas             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done']);
+const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
+const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -430,7 +431,7 @@ function stockList() {
     let status = 'ok';
     if (!known.has(i.id)) status = 'unset';
     else if (b <= 0) status = 'out';
-    else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= 2)) status = 'low';
+    else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= 3)) status = 'low';   // 3 din ya kam ka stock = peela
     return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status,
       sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0 };
   });
@@ -451,16 +452,67 @@ function stockAlertCheck() {
     });
   } catch (e) { console.error('stock alert', e.message); }
 }
+// ---------- zaroori saman: khatam ho to order nahi lagta (Admin PIN ke baghair) ----------
+const ESSENTIAL = new Set(['Maida', 'Pizza Chicken', 'Burger Bun', 'Boneless Thai', 'Chicken Patty', 'Chapli Patty', 'Zestful Chicken Strips',
+  'Tortilla Bread', 'Seekh Kabab', 'Hot Shot', 'Shawarma Bread', 'Plain Paratha', 'Fries', 'Wings', 'Nuggets', 'Macaroni', 'Lazania Strip']);
+const CHEESE = ['Top Cow Cheese', 'Shredded 70/30 Cheese'];          // dono mila kar (aik khatam ho to doosri se chal jata hai)
+// in categories mein ye saman sirf "side" hai, us ke baghair bhi item ban jata hai
+const SIDE = { pizza: ['Seekh Kabab', 'Fries'], wrap: ['Fries'], pasta: ['Seekh Kabab'] };
+function catKey(name) { const n = String(name || '').toLowerCase(); return /pizza/.test(n) ? 'pizza' : /wrap|roll/.test(n) ? 'wrap' : /pasta|salad/.test(n) ? 'pasta' : ''; }
+// cart lines -> { saman ka naam: kitna chahiye } sirf zaroori cheezein (deal ke hisse + pizza flavour samet)
+function essentialNeed(lines) {
+  const items = Object.fromEntries(db.prepare('select id,name,is_prep from stock_items where active=1').all().map(i => [i.id, i]));
+  const rec = db.prepare('select item_id,qty,away from recipes where variant_id=?');
+  const prep = db.prepare('select item_id,qty from prep_recipes where prep_id=?');
+  const pyield = db.prepare('select prep_yield,sub_per from stock_items where id=?');
+  const parts = db.prepare('select part_vid,qty,slot from deal_parts where variant_id=? order by id');
+  const cat = db.prepare('select c.name from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id where v.id=?');
+  const need = {}, add = (n, q) => { need[n] = (need[n] || 0) + q; };
+  const walk = (vid, mult, slots, depth) => {
+    if (depth > 3) return;
+    const side = SIDE[catKey((cat.get(vid) || {}).name)] || [];
+    rec.all(vid).forEach(r => {
+      const it = items[r.item_id]; if (!it) return;
+      if (it.is_prep) { const y = pyield.get(it.id); if (y && y.prep_yield > 0) { const f = r.qty * mult * (y.sub_per || 1) / y.prep_yield;
+        prep.all(it.id).forEach(p => { const pi = items[p.item_id]; if (pi && ESSENTIAL.has(pi.name)) add(pi.name, p.qty * f); }); } return; }
+      if (side.includes(it.name)) return;
+      if (CHEESE.includes(it.name)) add('Cheese', r.qty * mult);
+      else if (ESSENTIAL.has(it.name)) add(it.name, r.qty * mult);
+    });
+    let si = 0;
+    parts.all(vid).forEach(p => { let pv = p.part_vid; if (p.slot) { const c = slots && slots[si++]; if (c && c.vid) pv = c.vid; } walk(pv, p.qty * mult, null, depth + 1); });
+  };
+  lines.forEach(l => { if (l.vid) { const z = parsePz(l.pz); walk(l.vid, l.qty, z && z.s, 0); } });
+  return need;
+}
+// kaunsa zaroori saman kam pare ga? (sirf woh saman jis ka stock kabhi likha gaya ho)
+function stockBlockers(lines) {
+  const list = stockList(), by = Object.fromEntries(list.map(i => [i.name, i])), out = [];
+  const need = essentialNeed(lines);
+  Object.entries(need).forEach(([n, q]) => {
+    if (n === 'Cheese') {
+      const cs = CHEESE.map(c => by[c]).filter(Boolean); if (!cs.length || cs.every(c => c.status === 'unset')) return;
+      const bal = cs.reduce((t, c) => t + Math.max(0, c.bal), 0);
+      if (bal + 1e-9 < q) out.push({ name: 'Cheese (Top Cow + Shredded)', bal: r2(bal * 1000), need: r2(q * 1000), unit: 'g' });
+      return;
+    }
+    const i = by[n]; if (!i || i.status === 'unset') return;
+    if (Math.max(0, i.bal) + 1e-9 < q) out.push({ name: i.name, bal: i.sub_per ? r2(i.bal * i.sub_per) : r2(i.bal), need: i.sub_per ? r2(q * i.sub_per) : r2(q), unit: i.sub_per ? i.sub_unit : i.unit });
+  });
+  return out;
+}
 const qtyTxtSrv = i => (i.sub_per && Math.abs(i.bal) < 1 ? `${Math.round(i.bal * i.sub_per)} ${i.sub_unit}` : `${+(+i.bal).toFixed(2)} ${i.unit}`);
 app.get('/api/stock/alerts', (req, res) => {
   try {
     const list = stockList(), by = Object.fromEntries(list.map(i => [i.id, i]));
     const alerts = list.filter(i => i.status === 'out' || i.status === 'low').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1));
-    const variants = {};
-    db.prepare('select variant_id v, item_id i from recipes where away=0').all().forEach(r => {
-      const it = by[r.i]; if (!it || (it.status !== 'out' && it.status !== 'low')) return;
-      const cur = variants[r.v];
-      if (!cur || (it.status === 'out' && cur.status !== 'out')) variants[r.v] = { status: it.status, name: it.name, bal: it.bal, unit: it.unit, days: it.days };
+    const variants = {}, byName = Object.fromEntries(list.map(i => [i.name, i]));
+    db.prepare('select v.id from variants v where v.active=1 and v.deleted=0').all().forEach(({ id }) => {
+      const bl = stockBlockers([{ vid: id, qty: 1 }]);
+      if (bl.length) { variants[id] = { status: 'out', name: bl[0].name, bal: bl[0].bal, unit: bl[0].unit, days: null, block: true }; return; }
+      const need = Object.keys(essentialNeed([{ vid: id, qty: 1 }]));
+      const low = need.flatMap(n => (n === 'Cheese' ? CHEESE : [n])).map(n => byName[n]).find(i => i && i.status === 'low');
+      if (low) variants[id] = { status: 'low', name: low.name, bal: low.bal, unit: low.unit, days: low.days };
     });
     res.json({ alerts, variants });
   } catch (e) { res.json({ alerts: [], variants: {} }); }
@@ -607,6 +659,12 @@ app.post('/api/orders', (req, res) => {
     const calc = calcOrder(b, S, null);
     if (calc.err) return res.status(400).json({ error: calc.err });
     if (calc.gift && S.gift_needs_pin === '1' && req.get('x-admin-pin') !== S.admin_pin) return res.status(403).json({ error: 'Gift ke liye Admin PIN chahiye', code: 'GIFT_PIN' });
+    // zaroori saman khatam: order nahi lagta, sirf Admin PIN se (har dafa)
+    const bl = stockBlockers(calc.lines);
+    if (bl.length) {
+      if (req.get('x-stock-pin') !== S.admin_pin) return res.status(409).json({ error: 'Zaroori saman khatam hai', code: 'STOCK_BLOCK', blockers: bl, wrong_pin: !!req.get('x-stock-pin') });
+      logEvent('stock', `Admin PIN se khatam stock par order liya: ${bl.map(b => b.name).join(', ')}`);
+    }
     const sync = syncOn();
     const id = db.transaction(() => insertOrder(b, calc, S, null))();
     if (sync) syncSoon();
@@ -909,6 +967,7 @@ admin.post('/stock/in', (req, res) => {
   if (qty <= 0) return res.status(400).json({ error: 'Miqdar likhein' });
   const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : businessDate(), now = fmtDT(new Date());
   const amount = int(b.amount);
+  if (!(amount > 0)) return res.status(400).json({ error: 'Kitne Rs ka aaya, ye likhna zaroori hai' });
   db.transaction(() => {
     let eid = null;
     if (amount > 0) {
@@ -953,6 +1012,31 @@ admin.post('/stock/from-menu', (req, res) => {
     if (!db.prepare('select 1 from recipes where variant_id=?').get(v.id)) { db.prepare('insert into recipes(variant_id,item_id,qty) values(?,?,1)').run(v.id, it.id); linked++; }
   }))();
   res.json({ made, linked });
+});
+// Demand slip: pichle 7 din ki asal sale (orders + recipes) se roz ki khapat, N din ka saman - bacha hua = mangwana (pack mein)
+admin.get('/stock/demand', (req, res) => {
+  const days = Math.min(30, Math.max(1, int(req.query.days, 3)));
+  const bd = businessDate(), d0 = new Date(bd + 'T00:00:00Z'); d0.setUTCDate(d0.getUTCDate() - 7);
+  const since = d0.toISOString().slice(0, 10);
+  const orders = db.prepare("select id,type from orders where status='done' and business_date>=? and business_date<?").all(since, bd);
+  const nDays = Math.max(1, db.prepare("select count(distinct business_date) n from orders where status='done' and business_date>=? and business_date<?").get(since, bd).n);
+  const li = db.prepare('select variant_id vid,qty,pz from order_items where order_id=?');
+  const used = {};
+  orders.forEach(o => { const t = stockNeed(li.all(o.id).filter(l => l.vid), o.type); Object.entries(t).forEach(([id, q]) => { used[id] = (used[id] || 0) + q; }); });
+  const rows = [];
+  stockList().forEach(i => {
+    const perDay = (used[i.id] || 0) / nDays, bal = Math.max(0, i.bal);
+    let need = perDay * days - bal;
+    if (perDay === 0 && (i.status === 'out' || i.status === 'low')) need = Math.max(need, i.pack_size || 1, i.min_level - bal);
+    if (i.min_level > 0) need = Math.max(need, i.min_level + perDay * days - bal);
+    if (need <= 1e-9) return;
+    const packs = i.pack_size > 0 ? Math.ceil(need / i.pack_size - 1e-9) : null;
+    rows.push({ name: i.name, grp: i.grp || 'Dusra', unit: i.unit, sub_unit: i.sub_unit, sub_per: i.sub_per, bal: r2(bal), per_day: Math.round(perDay * 1000) / 1000,
+      need: Math.round(need * 1000) / 1000, packs, pack_size: i.pack_size, pack_name: i.pack_name, buy: packs ? r2(packs * i.pack_size) : Math.round(need * 100) / 100,
+      cost: i.rate ? Math.round((packs ? packs * i.pack_size : need) * i.rate) : null, status: i.status });
+  });
+  rows.sort((a, b) => (a.grp === b.grp ? a.name.localeCompare(b.name) : a.grp === 'Raw saman' ? -1 : b.grp === 'Raw saman' ? 1 : a.grp.localeCompare(b.grp)));
+  res.json({ days, based_on: nDays, date: bd, rows, total: rows.reduce((t, r) => t + (r.cost || 0), 0), shop: getSettings().shop_name });
 });
 // Recipes final hain (recipes-seed.js); admin se badli nahi ja saktin
 // Recipe ki lagat: har saman ki qeemat (aakhri khareed ke rate se) + kul (Dine-in / Takeaway)
@@ -1213,6 +1297,7 @@ function seedStockV2() {
     logEvent('setting', 'Stock v2: recipes, Dough aur deals ke hisse lag gaye' + (miss.length ? '. Nahi mile: ' + miss.join(', ') : ''));
     if (miss.length) console.log('Stock v2 - nahi mile:', miss.join(' ; '));
     setSetting('stock_v2_done', now);
+    setSetting('coat_maida_done', now);   // naye database ki recipes mein coating pehle se hai
   } catch (e) { console.error('stock v2:', e.message); }
 }
 seedStockV2();
@@ -1244,6 +1329,23 @@ try {
     setImmediate(stockAlertCheck);
   }
 } catch (e) { console.error('opening stock', e.message); }
+// Coating maida (wings 100 g, boneless thai 250 g har piece) purane database ki recipes mein aik baar
+try {
+  if (!getSettings().coat_maida_done) {
+    const COAT = require('./recipes-seed').COAT, id = n => (db.prepare('select id,sub_per from stock_items where name=? and active=1').get(n) || {});
+    const maida = id('Maida');
+    if (maida.id) db.transaction(() => Object.entries(COAT).forEach(([n, g]) => {
+      const it = id(n); if (!it.id) return;
+      db.prepare('select variant_id v,qty from recipes where item_id=? and away=0').all(it.id).forEach(r => {
+        const add = r.qty * g / (maida.sub_per || 1000);
+        const ex = db.prepare('select qty from recipes where variant_id=? and item_id=? and away=0').get(r.v, maida.id);
+        if (ex) db.prepare('update recipes set qty=? where variant_id=? and item_id=? and away=0').run(ex.qty + add, r.v, maida.id);
+        else db.prepare('insert into recipes(variant_id,item_id,qty,away) values(?,?,?,0)').run(r.v, maida.id, add);
+      });
+    }))();
+    setSetting('coat_maida_done', fmtDT(new Date()));
+  }
+} catch (e) { console.error('coat maida', e.message); }
 // Nuggets ka pack 35 hi hai (owner ki copy ke mutabiq). v1.12-1.15 ne 50 kar diya tha, wapas
 try {
   if (!getSettings().stock_v2c_done) {

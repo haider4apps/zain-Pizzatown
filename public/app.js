@@ -9,7 +9,7 @@ async function api(url, opt) {
   if (o && opt.headers) Object.assign(o.headers, opt.headers);
   const r = await fetch(url, o);
   const j = await r.json().catch(() => ({}));
-  if (!r.ok) throw new Error(j.error || ('Error ' + r.status));
+  if (!r.ok) { const e = new Error(j.error || ('Error ' + r.status)); e.data = j; throw e; }
   return j;
 }
 let toastT;
@@ -32,9 +32,13 @@ async function loadStock() {
   try { STOCK = await api('/api/stock/alerts'); } catch (e) { return; }
   const bar = $('#stockBar');
   if (bar) {
-    const al = STOCK.alerts;
+    const al = STOCK.alerts, out = al.filter(s => s.status === 'out'), low = al.filter(s => s.status !== 'out');
     bar.hidden = !al.length;
-    bar.innerHTML = al.length ? '<span>⚠ Saman kam hai:</span>' + al.map(s => `<em class="${s.status}">${esc(s.name)}: ${s.status === 'out' ? 'khatam' : 'sirf ' + s.bal + ' ' + esc(s.unit) + (s.days !== null && s.days <= 3 ? ' (~' + Math.max(0, Math.floor(s.days)) + ' din)' : '')}</em>`).join('') + '<a href="/admin.html#stock">Stock dekhein ›</a>' : '';
+    bar.className = 'stockbar ' + (out.length ? 'red' : 'yellow');
+    const q = s => (s.sub_per && Math.abs(s.bal) < 1 ? Math.round(s.bal * s.sub_per) + ' ' + esc(s.sub_unit) : +(+s.bal).toFixed(2) + ' ' + esc(s.unit));
+    bar.innerHTML = (out.length ? `<span>⛔ Khatam (${out.length}):</span>` + out.map(s => `<em class="out">${esc(s.name)}</em>`).join('') : '')
+      + (low.length ? `<span>${out.length ? '' : '⚠ '}Kam (${low.length}):</span>` + low.map(s => `<em class="low">${esc(s.name)}: ${q(s)}${s.days !== null && s.days <= 3 ? ' (~' + Math.max(0, Math.floor(s.days)) + ' din)' : ''}</em>`).join('') : '')
+      + '<a href="/admin.html#stock">Stock daalein ›</a>';
   }
   if (typeof renderMenu === 'function' && menu && menu.length) renderMenu();
 }
@@ -137,12 +141,12 @@ function renderMenu() {
       const b = el('button', 'chip' + (v.price > 0 ? '' : ' na'),
         (v.label ? `<small>${esc(v.label)}</small>` : '') + (v.price > 0 ? `<b>${v.price}</b>` : 'price?'));
       const sv = STOCK.variants[v.id];
-      if (sv) { b.classList.add(sv.status === 'out' ? 'stout' : 'stlow'); b.insertAdjacentHTML('beforeend', `<span class="stb">${sv.status === 'out' ? 'khatam' : sv.days !== null && sv.days <= 2 ? '~' + Math.max(0, Math.floor(sv.days)) + ' din' : 'kam hai'}</span>`); }
+      if (sv) { b.classList.add(sv.status === 'out' ? 'stout' : 'stlow'); b.insertAdjacentHTML('beforeend', `<span class="stb">${sv.status === 'out' ? '⛔ ' + esc(sv.name) + ' khatam' : sv.days !== null && sv.days <= 3 ? '~' + Math.max(0, Math.floor(sv.days)) + ' din' : 'kam hai'}</span>`); }
       const add = () => { addToCart(i, v); b.classList.remove('hit'); card.classList.remove('hit'); void b.offsetWidth; b.classList.add('hit'); card.classList.add('hit'); };
       b.onclick = () => {
         if (!(v.price > 0)) return toast('Is ki price set nahi. Admin se price daalein.');
         const s = STOCK.variants[v.id];
-        if (s && s.status === 'out') stockConfirm(i, v, s, add); else add();
+        add();   // khatam saman wala item cart mein ja sakta hai, lekin order Admin PIN ke baghair nahi lagega
       };
       chips.appendChild(b);
     });
@@ -326,7 +330,10 @@ async function placeOrder() {
   }
   placing = true; $('#coOk').disabled = true;
   try {
-    const o = await api(editing ? '/api/orders/' + editing.id : '/api/orders', { method: editing ? 'PUT' : 'POST', headers: (giftPin || (editing && editing.pin)) ? { 'x-admin-pin': giftPin || editing.pin } : undefined, body: {
+    const hdr = {};
+    if (giftPin || (editing && editing.pin)) hdr['x-admin-pin'] = giftPin || editing.pin;
+    if (stockPin) hdr['x-stock-pin'] = stockPin;
+    const o = await api(editing ? '/api/orders/' + editing.id : '/api/orders', { method: editing ? 'PUT' : 'POST', headers: hdr, body: {
       type: co.type, table_no: co.table_no, customer_name: co.customer_name, phone: co.phone, address: co.address,
       rider: co.rider, discount: +co.discount || 0, delivery_charge: +co.delivery_charge || 0, service: co.service,
       payment: co.payment, gift_by: co.gift_by, note: co.note, slip_lang: co.slip_lang, no_print: !!co.no_print,
@@ -338,9 +345,30 @@ async function placeOrder() {
     renderCart();
     toast(wasEdit ? `#${wasEdit} cancel, naya order #${o.order_no} · ${money(o.total)}` : `Order #${o.order_no} save ho gaya · ${money(o.total)}` + (isStation() ? '' : ' · Print PC par hoga'), 3500);
     if (isStation()) pollPrint();
-    loadRiders();
-  } catch (e) { toast(e.message, 4000); }
-  placing = false; const ok = $('#coOk'); if (ok) ok.disabled = false;
+    loadRiders(); loadStock();
+  } catch (e) {
+    placing = false; const ok0 = $('#coOk'); if (ok0) ok0.disabled = false;
+    if (e.data && e.data.code === 'STOCK_BLOCK') return stockBlock(e.data, placeOrder);
+    toast(e.message, 4000);
+  }
+  placing = false; stockPin = ''; const ok = $('#coOk'); if (ok) ok.disabled = false;
+}
+// Zaroori saman khatam: bara laal paigham. Order sirf Admin PIN se (har dafa), taake stock daala jaye
+let stockPin = '';
+function stockBlock(d, retry) {
+  stockPin = '';
+  const m = document.createElement('div'); m.className = 'modal on';
+  m.innerHTML = `<div class="sheet blk"><div class="blkhead">⛔ STOCK KHATAM HAI</div>
+    <div style="font-size:17px;line-height:1.5">Ye order nahi lag sakta. Is ka zaroori saman khatam hai:</div>
+    <div class="blklist">${d.blockers.map(b => `<div><b>${esc(b.name)}</b><span>chahiye ${b.need} ${esc(b.unit)} · bacha ${Math.max(0, b.bal)} ${esc(b.unit)}</span></div>`).join('')}</div>
+    <div style="color:#ffd2cc;font-size:14px">Saman aa gaya hai to Admin pehle <b>Stock → Saman aaya</b> mein daale. Abhi zaroori ho to Admin PIN se order lag sakta hai (har dafa PIN mangega).</div>
+    ${d.wrong_pin ? '<div style="color:#ff8a80;font-weight:800">PIN ghalat tha</div>' : ''}
+    <input id="blkPin" type="password" inputmode="numeric" placeholder="Admin PIN" style="font-size:20px;text-align:center">
+    <div class="two"><button class="btn" id="blkNo">Wapas</button><button class="btn red" id="blkYes">PIN se order lagayein</button></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector('#blkNo').onclick = () => m.remove();
+  m.querySelector('#blkYes').onclick = () => { const p = m.querySelector('#blkPin').value.trim(); if (!p) return toast('Admin PIN likhein'); stockPin = p; m.remove(); retry(); };
+  m.querySelector('#blkPin').focus();
 }
 
 // ---------------- recent orders ----------------
