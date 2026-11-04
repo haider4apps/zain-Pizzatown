@@ -247,8 +247,28 @@ function grpItems(items, g, vars) {
   return l.length ? '<option value="">Item chunein</option>' + l.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('') : '<option value="">Koi item nahi (neeche "Naya stock item" se banayen)</option>';
 }
 const pickBody = val => String(val).startsWith('v') ? { variant_id: String(val).slice(1) } : { item_id: val };
-const EXP_CATS = ['Gas', 'Petrol', 'Salary', 'Rent', 'Bijli/Pani', 'Rider', 'Repair', 'Other'];
-const EXP_ICON = { Gas: '🔥', Petrol: '⛽', Salary: '👷', Rent: '🏠', 'Bijli/Pani': '💡', Rider: '🛵', Repair: '🔧', Other: '📝' };
+const EXP_CATS = ['Gas', 'Petrol', 'Salary', 'Rent', 'Bijli/Pani', 'Rider', 'Repair', 'Cigarette', 'Chai', 'Sabzi', 'Doodh', 'Khana', 'Other'];
+const EXP_ICON = { Gas: '🔥', Petrol: '⛽', Salary: '👷', Rent: '🏠', 'Bijli/Pani': '💡', Rider: '🛵', Repair: '🔧', Cigarette: '🚬', Chai: '☕', Sabzi: '🥬', Doodh: '🥛', Khana: '🍛', Other: '📝' };
+// Stock daalne ke baad sukoon: bara emoji + upar uthte dabbe/sitare (3 second)
+const RELIEF = [['😌', 'Uff! Sukoon aa gaya', 'Stock bhar gaya, ab koi tension nahi'], ['💪', 'Shabash! Kamaal kar diya', 'Godaam phir se full'],
+  ['🥳', 'Zabardast!', 'Mehnat ka kaam ho gaya, ab chai piyein ☕'], ['😎', 'Boss mode ON', 'Saman aa gaya, kitchen tayyar'], ['🙌', 'Alhamdulillah!', 'Stock poora, kaam aasan']];
+function reliefShow(item) {
+  // Har dafa agla message (baari baari), lagatar aik jaisa kabhi nahi
+  let k = 0; try { k = (+localStorage.getItem('reliefN') || 0) % RELIEF.length; localStorage.setItem('reliefN', k + 1); } catch (e) { k = Math.floor(Math.random() * RELIEF.length); }
+  const [em, t1, t2] = RELIEF[k];
+  const d = document.createElement('div'); d.className = 'relief';
+  const fl = Array.from({ length: 14 }, (_, k) => `<span class="fl" style="left:${4 + k * 7}%;animation-delay:${(k % 5) * 0.25}s;font-size:${26 + (k % 3) * 10}px">${['📦', '✨', '⭐', '✅', '🎉'][k % 5]}</span>`).join('');
+  d.innerHTML = fl + `<div class="card"><div class="em">${em}</div><div class="tx">${t1}</div><div class="sm">${item ? esc(item) + ' · ' : ''}${t2}</div></div>`;
+  document.body.appendChild(d); setTimeout(() => d.remove(), 3000);
+}
+// Ikattha kharcha save hone par 4 second ka mazaq 🦥
+function sustiShow() {
+  const d = document.createElement('div'); d.className = 'susti';
+  d.innerHTML = `<div class="card"><div class="emw"><span class="em">🦥</span><span class="zz" style="left:calc(50% + 55px);top:6px">Z</span><span class="zz" style="left:calc(50% + 75px);top:-4px;animation-delay:.7s">z</span><span class="zz" style="left:calc(50% + 92px);top:-14px;animation-delay:1.3s">z</span></div>
+    <div class="tx">Susti ka koi hal nahi is duniya mein! 😴</div><div class="sm">Roz ka roz likh liya karein 😉</div></div>`;
+  document.body.appendChild(d); setTimeout(() => d.remove(), 4000);
+}
+const EXP_SUB = { Doodh: 'fast food mein istemal ke ilawa', Khana: 'staff / ghar ka khana', Chai: 'staff / mehman' };
 async function viewExpenses() {
   const r = await A('/report'); // sirf aaj ki date lene ke liye
   const day = window._expDay || r.from;
@@ -258,7 +278,7 @@ async function viewExpenses() {
   const mcats = [...new Set(rcv.map(v => v.cat))];
   const sum = list.reduce((s, x) => s + x.amount, 0);
   view.innerHTML = `<div class="box"><b style="color:var(--gold)">Kharcha likhein</b>
-    <div class="etiles">${EXP_CATS.map(c => `<button class="etile" data-ec="${c}">${EXP_ICON[c] || '📝'} ${c}</button>`).join('')}
+    <div class="etiles">${EXP_CATS.map(c => `<button class="etile" data-ec="${c}">${EXP_ICON[c] || '📝'} ${c}${EXP_SUB[c] ? `<small>${EXP_SUB[c]}</small>` : ''}</button>`).join('')}
       <button class="etile ora" data-ec="Ikattha kharcha">🧾 Ikattha kharcha<small>saare din ka saman aik saath</small></button></div>
     <input type="hidden" id="eCat">
     <div id="eForm" class="eform" hidden>
@@ -283,7 +303,7 @@ async function viewExpenses() {
     $('#eHint').textContent = `${n} din: ${d0} se ${d1} tak har din mein ${a > 0 ? 'Rs ' + Math.floor(a / n).toLocaleString('en-PK') : 'barabar hissa'} judega (har din ka profit theek rahe).`; };
   view.querySelectorAll('[data-ec]').forEach(b => (b.onclick = () => {
     view.querySelectorAll('[data-ec]').forEach(x => x.classList.toggle('on', x === b));
-    $('#eCat').value = b.dataset.ec; $('#eForm').hidden = false; $('#eSel').textContent = b.textContent.replace('saare din ka saman aik saath', '').trim();
+    $('#eCat').value = b.dataset.ec; $('#eForm').hidden = false; $('#eSel').textContent = b.firstChild.textContent.trim();
     $('#eDays').value = '1'; eHint(); $('#eAmt').focus();
   }));
   $('#eDays').onchange = eHint; $('#eAmt').oninput = eHint;
@@ -293,6 +313,7 @@ async function viewExpenses() {
     const n = +$('#eDays').value;
     await A('/expenses', 'POST', { date: $('#eDate').value, category: $('#eCat').value, note: $('#eNote').value, amount: $('#eAmt').value, days: n });
     toast(n > 1 ? `Kharcha ${n} din par likh diya ✓` : 'Kharcha likh liya ✓'); viewExpenses();
+    if ($('#eCat').value === 'Ikattha kharcha' || n > 1) sustiShow();
   });
   view.onclick = e => guard(async () => {
     const b = e.target.closest('[data-act="dx"]'); if (!b) return;
@@ -329,7 +350,7 @@ function countDialog(it, done) {
   ov.onclick = e => { if (e.target === ov) ov.remove(); };
   ov.querySelector('#cdOk').onclick = () => guard(async () => {
     if (!any()) throw new Error('Pack ya miqdar likhein');
-    await A('/stock/count', 'POST', { item_id: it.id, count: +val().toFixed(4) }); ov.remove(); toast('Stock theek ho gaya ✓'); done();
+    await A('/stock/count', 'POST', { item_id: it.id, count: +val().toFixed(4) }); ov.remove(); toast('Stock theek ho gaya ✓'); done(); reliefShow(it.name);
   });
   (ov.querySelector('#cdP') || ov.querySelector('#cdQ')).focus();
 }
@@ -516,7 +537,8 @@ async function viewStock() {
   });
   $('#iAdd').onclick = () => guard(async () => {
     await A('/stock/in', 'POST', { ...pickBody($('#iItem').value), packs: $('#iPacks').value, qty: $('#iQty').value, amount: $('#iAmt').value, date: $('#iDate').value });
-    toast('Stock mein add ho gaya ✓'); viewStock();
+    const nm = (items.find(x => String(x.id) === String($('#iItem').value)) || {}).name;
+    toast('Stock mein add ho gaya ✓'); viewStock(); reliefShow(nm);
   });
   const rOpt = (v, withCat) => { const has = v.recipe.length || v.parts.length; return `<option value="${v.id}">${has ? '✓' : '○'} ${withCat ? esc(v.cat) + ' › ' : ''}${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${has ? '' : ' (Recipe nahi)'}</option>`; };
   $('#rGrp').onchange = () => { const g = $('#rGrp').value, sel = $('#rSel'); if (g && $('#qRc').value) { $('#qRc').value = ''; window._q.qRc = ''; $('#qRc').parentElement.querySelector('.sc').textContent = ''; } sel.disabled = !g; sel.innerHTML = g ? '<option value="">Item chunein...</option>' + rc.variants.filter(v => v.cat === g).map(v => rOpt(v)).join('') : '<option value="">Pehle group chunein</option>'; $('#rBox').innerHTML = ''; };

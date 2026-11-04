@@ -17,12 +17,16 @@ If Not Up() Then
     If Up() Then Exit For
   Next
 End If
+' POS pehle se khula ho to nayi window nahi: wohi saamne aa jaye (PC ki RAM kam hai)
+r = sh.Run("powershell.exe -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File """ & d & "\focus-pos.ps1""", 0, True)
+If r = 0 Then WScript.Quit
 chrome = ""
 For Each p In Array(sh.ExpandEnvironmentStrings("%ProgramFiles%") & "\Google\Chrome\Application\chrome.exe", sh.ExpandEnvironmentStrings("%ProgramFiles(x86)%") & "\Google\Chrome\Application\chrome.exe", sh.ExpandEnvironmentStrings("%LocalAppData%") & "\Google\Chrome\Application\chrome.exe")
   If fso.FileExists(p) Then chrome = p : Exit For
 Next
 If chrome <> "" Then
-  sh.Run """" & chrome & """ --app=http://localhost:3000", 1, False
+  ' Tray jaisi window: bina print dialog (kiosk-printing) aur POS ka apna Chrome profile
+  sh.Run """" & chrome & """ --kiosk-printing --user-data-dir=""" & d & "\chrome-profile"" --app=http://localhost:3000", 1, False
 Else
   sh.Run "http://localhost:3000", 1, False
 End If

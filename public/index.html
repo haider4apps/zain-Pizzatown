@@ -12,13 +12,13 @@
     <div class="logo">PIZZA TOWN</div>
     <input class="search" id="search" placeholder="Search item..." autocomplete="off">
     <div class="sp"></div>
-    <button class="btn" id="btnVoice" title="Bol kar order">🎤 Voice</button>
+    <button class="btn stk out" id="btnOut" hidden title="Jo saman khatam hai">⛔<span class="lbl"> Khatam</span> <b>0</b></button>
+    <button class="btn stk low" id="btnLow" hidden title="Jo saman kam hai">⚠<span class="lbl"> Kam</span> <b>0</b></button>
     <button class="btn" id="btnOrders">Orders</button>
     <span class="syncpill" id="syncPill" hidden></span>
     <button class="btn hide-m" id="btnStation" title="Is device se slips print hongi">Printer: OFF</button>
-    <a class="btn hide-m" href="/admin.html" style="text-decoration:none">Admin</a>
+    <a class="btn hide-m toAdmin" href="/admin.html" style="text-decoration:none">Admin</a>
   </header>
-  <div id="stockBar" class="stockbar" hidden></div>
   <nav id="tabs"></nav>
   <section id="menu"></section>
   <aside id="cart">
@@ -38,7 +38,7 @@
 <div id="toast"></div>
 <datalist id="riders"></datalist>
 <iframe id="printFrame" style="position:fixed;left:-9999px;width:1px;height:1px;border:0"></iframe>
-<script src="/voice.js"></script>
+<script src="/one.js"></script>
 <script src="/fun.js"></script>
 <script src="/app.js"></script>
 </body>

@@ -1,3 +1,4 @@
+if (window.POS_BLOCKED) throw new Error('POS doosri window mein khula hai');   // one.js: sirf aik window
 const $ = s => document.querySelector(s);
 const el = (t, c, h) => { const e = document.createElement(t); if (c) e.className = c; if (h != null) e.innerHTML = h; return e; };
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -30,16 +31,9 @@ const catColor = id => { const i = menu.findIndex(c => c.id === id); return PALE
 let STOCK = { alerts: [], variants: {} };
 async function loadStock() {
   try { STOCK = await api('/api/stock/alerts'); } catch (e) { return; }
-  const bar = $('#stockBar');
-  if (bar) {
-    const al = STOCK.alerts, out = al.filter(s => s.status === 'out'), low = al.filter(s => s.status !== 'out');
-    bar.hidden = !al.length;
-    bar.className = 'stockbar ' + (out.length ? 'red' : 'yellow');
-    const q = s => (s.sub_per && Math.abs(s.bal) < 1 ? Math.round(s.bal * s.sub_per) + ' ' + esc(s.sub_unit) : +(+s.bal).toFixed(2) + ' ' + esc(s.unit));
-    bar.innerHTML = (out.length ? `<span>⛔ Khatam (${out.length}):</span>` + out.map(s => `<em class="out">${esc(s.name)}</em>`).join('') : '')
-      + (low.length ? `<span>${out.length ? '' : '⚠ '}Kam (${low.length}):</span>` + low.map(s => `<em class="low">${esc(s.name)}: ${q(s)}${s.days !== null && s.days <= 3 ? ' (~' + Math.max(0, Math.floor(s.days)) + ' din)' : ''}</em>`).join('') : '')
-      + '<a href="/admin.html#stock">Stock daalein ›</a>';
-  }
+  // Upar 2 button: laal = khatam, peela = kam (gin ke). Dabane par list popup mein
+  const al = STOCK.alerts, out = al.filter(s => s.status === 'out'), low = al.filter(s => s.status !== 'out');
+  [['#btnOut', out], ['#btnLow', low]].forEach(([id, l]) => { const b = $(id); if (!b) return; b.hidden = !l.length; b.querySelector('b').textContent = l.length; });
   if (typeof renderMenu === 'function' && menu && menu.length) renderMenu();
 }
 function stockConfirm(item, v, s, ok) {
@@ -54,6 +48,21 @@ function stockConfirm(item, v, s, ok) {
   m.querySelector('#scYes').onclick = () => { m.remove(); ok(); fetch('/api/stock/override', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `${item.name} ${v.label || ''} (${s.name} khatam)` }) }).catch(() => {}); };
 }
 setInterval(loadStock, 60000);
+function stockPopup(kind) {
+  const out = kind === 'out', list = STOCK.alerts.filter(s => (s.status === 'out') === out);
+  const q = s => (s.sub_per && Math.abs(s.bal) < 1 ? Math.round(s.bal * s.sub_per) + ' ' + esc(s.sub_unit) : +(+s.bal).toFixed(2) + ' ' + esc(s.unit));
+  const m = document.createElement('div'); m.className = 'modal on';
+  m.innerHTML = `<div class="sheet" style="max-width:480px"><h3 style="color:${out ? '#ff8a80' : '#f5c04a'}">${out ? '⛔ Khatam saman' : '⚠ Kam saman'} (${list.length})</h3>
+    <div class="stklist">${list.map(s => `<div class="stkrow ${out ? 'out' : 'low'}"><b>${esc(s.name)}</b><span>${out ? 'khatam' : 'bacha ' + q(s) + (s.days !== null ? ' · ~' + Math.max(0, Math.floor(s.days)) + ' din' : '')}</span></div>`).join('') || '<div class="empty">Kuch nahi</div>'}</div>
+    <div class="two"><button class="btn" id="spNo">Band</button><a class="btn gold toAdmin" href="/admin.html#stock" style="text-decoration:none;text-align:center">➕ Stock daalein</a></div></div>`;
+  document.body.appendChild(m);
+  m.querySelector('#spNo').onclick = () => m.remove();
+  m.onclick = e => { if (e.target === m) m.remove(); };
+}
+$('#btnOut').onclick = () => stockPopup('out');
+// POS se Admin mein jayen to har dafa Admin PIN dobara poocha jaye (purana khula session band)
+document.addEventListener('click', e => { if (e.target.closest('.toAdmin')) try { sessionStorage.removeItem('pin'); } catch (x) {} }, true);
+$('#btnLow').onclick = () => stockPopup('low');
 async function load() {
   [menu, settings] = await Promise.all([api('/api/menu'), api('/api/settings')]);
   if (!menu.find(c => c.id === cur)) cur = menu.length ? menu[0].id : null;
@@ -467,76 +476,11 @@ async function loadRiders() {
   try { const r = await api('/api/riders'); $('#riders').innerHTML = r.map(x => `<option value="${esc(x)}">`).join(''); } catch (e) {}
 }
 
-// ---------------- voice order ----------------
-const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-let vo = { lang: 'en-IN', text: '', res: null, rec: null, listening: false };
-function addQty(item, v, qty) {
-  const l = cart.find(x => x.variant_id === v.id);
-  if (l) l.qty += qty; else cart.push({ variant_id: v.id, name: item.name, label: v.label, price: v.price, qty, note: '', extras: '', extras_price: 0 });
-}
-function openVoice() {
-  vo.res = null; vo.text = '';
-  let m = $('#voiceModal');
-  if (!m) { m = el('div', 'modal'); m.id = 'voiceModal'; m.innerHTML = '<div class="sheet" id="voiceSheet"></div>'; document.body.appendChild(m); m.addEventListener('click', e => { if (e.target === m) closeVoice(); }); }
-  m.classList.add('on'); renderVoice();
-}
-function closeVoice() { try { vo.rec && vo.rec.stop(); } catch (e) {} vo.listening = false; $('#voiceModal').classList.remove('on'); }
-function renderVoice() {
-  const sh = $('#voiceSheet');
-  const canMic = SR && window.isSecureContext;
-  const lines = vo.res ? vo.res.lines : [];
-  sh.innerHTML = `<h3>Voice order</h3>
-  ${canMic ? `<div class="seg two-seg" id="vLang"><button data-l="en-IN" class="${vo.lang === 'en-IN' ? 'on' : ''}">Roman / English</button><button data-l="ur-PK" class="${vo.lang === 'ur-PK' ? 'on' : ''}">اردو</button></div>
-  <button class="btn ${vo.listening ? 'red' : 'gold'}" id="vMic" style="padding:16px;font-size:18px">${vo.listening ? '■ Ruk jao (sun raha hoon...)' : '🎤 Bolna shuru karein'}</button>`
-    : `<div style="color:var(--mute);font-size:13px">${SR ? 'Is device par mic band hai (http address). Keyboard ke mic 🎤 se bol kar niche likhwayein.' : 'Is browser mein voice nahi. Keyboard ke mic 🎤 se bol kar niche likhwayein.'}</div>`}
-  <div class="f"><label>Abhi jo bola / likha (har baar bolne par list mein judta jata hai)</label><textarea id="vText" rows="2" placeholder="e.g. do large fajita pizza, ek zinger, teen cold drink 500ml">${esc(vo.text)}</textarea></div>
-  <button class="btn" id="vParse">Samjho aur list mein jodo</button>
-  <div id="vRes">${vo.res ? (lines.length ? lines.map((l, i) => `<div class="vline ${l.uncertain ? 'unsure' : ''}">
-      <div class="qty"><button data-i="${i}" data-a="-">−</button><span>${l.qty}</span><button data-i="${i}" data-a="+">+</button></div>
-      <div style="flex:1"><b>${esc(l.item.name)}</b><br><select data-i="${i}" data-a="v">${l.item.variants.filter(v => v.price > 0).map(v => `<option value="${v.id}" ${v.id === l.variant.id ? 'selected' : ''}>${esc(v.label || 'Regular')} · Rs ${v.price}</option>`).join('')}</select></div>
-      <button class="btn red" data-i="${i}" data-a="x">✕</button></div>`).join('') : '<div class="empty" style="margin:6px">Koi item nahi samjha</div>') +
-      vo.res.unmatched.map(u => `<div style="color:var(--red);font-size:13px">Samajh nahi aaya (ya price set nahi): ${esc(u)}</div>`).join('') : ''}</div>
-  <div class="two"><button class="btn" id="vClose">Band</button><button class="btn gold" id="vAdd" ${lines.length ? '' : 'disabled'}>Cart mein daalo</button></div>`;
-  const mic = $('#vMic'); if (mic) mic.onclick = toggleMic;
-  sh.querySelectorAll('#vLang button').forEach(b => b.onclick = () => { vo.lang = b.dataset.l; renderVoice(); });
-  $('#vText').oninput = e => (vo.text = e.target.value);
-  $('#vParse').onclick = () => { vo.text = $('#vText').value; doParse(); };
-  $('#vClose').onclick = closeVoice;
-  $('#vAdd').onclick = () => { vo.res.lines.forEach(l => addQty(l.item, l.variant, l.qty)); renderCart(); vo.res = null; vo.text = ''; renderVoice(); toast('Cart mein daal diya. Aur bolna ho to bolte rahein, warna Band dabayein', 3500); };
-  sh.querySelectorAll('#vRes [data-a]').forEach(b => {
-    const l = vo.res.lines[+b.dataset.i], a = b.dataset.a;
-    if (a === 'v') b.onchange = () => { l.variant = l.item.variants.find(v => v.id === +b.value); l.uncertain = false; renderVoice(); };
-    else b.onclick = () => { if (a === '+') l.qty++; if (a === '-') l.qty = Math.max(1, l.qty - 1); if (a === 'x') vo.res.lines.splice(+b.dataset.i, 1); renderVoice(); };
-  });
-}
-function doParse() {
-  // Har nayi baat purani list mein judti hai (purane items nahi urte)
-  const r = VoiceParse.parse(vo.text, menu);
-  if (!vo.res) vo.res = { lines: [], unmatched: [] };
-  r.lines.forEach(n => {
-    const ex = vo.res.lines.find(l => l.item.id === n.item.id && l.variant.id === n.variant.id);
-    if (ex) ex.qty += n.qty; else vo.res.lines.push(n);
-  });
-  vo.res.unmatched = vo.res.unmatched.concat(r.unmatched || []);
-  vo.text = '';
-  renderVoice();
-}
-function toggleMic() {
-  if (vo.listening) { try { vo.rec.stop(); } catch (e) {} return; }
-  const r = new SR(); vo.rec = r; r.lang = vo.lang; r.interimResults = true; r.continuous = false; r.maxAlternatives = 1;
-  r.onstart = () => { vo.listening = true; renderVoice(); };
-  r.onresult = e => { vo.text = [...e.results].map(x => x[0].transcript).join(' '); const t = $('#vText'); if (t) t.value = vo.text; };
-  r.onerror = e => { vo.listening = false; toast(e.error === 'not-allowed' ? 'Mic ki ijazat nahi. Chrome ke address bar mein mic Allow karein' : e.error === 'network' ? 'Voice ke liye internet chahiye' : e.error === 'no-speech' ? 'Awaaz nahi aayi, dobara bolein' : 'Voice error: ' + e.error, 4000); renderVoice(); };
-  r.onend = () => { vo.listening = false; if (vo.text.trim()) doParse(); else renderVoice(); };
-  try { r.start(); } catch (e) { toast('Mic start nahi hua'); }
-}
-
 // ---------------- wiring ----------------
 $('#search').oninput = e => { query = e.target.value.trim().toLowerCase(); renderTabs(); renderMenu(); };
 $('#checkoutBtn').onclick = openCheckout;
 $('#clearCart').onclick = () => { if (cart.length && confirm('Cart khali kar dein?')) { cart = []; editing = null; co = null; renderCart(); } };
 $('#btnOrders').onclick = openOrders;
-$('#btnVoice').onclick = openVoice;
 $('#btnStation').onclick = async () => {
   const turnOn = !isStation();
   if (turnOn) { try { await api('/api/print/skip-old', {}); } catch (e) {} }   // purane jama orders ab nahi nikalenge

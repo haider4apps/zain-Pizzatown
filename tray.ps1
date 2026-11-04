@@ -28,6 +28,9 @@ function Stop-PizzaServer {
   $script:srv = $null
 }
 function Open-Pos {
+  # POS pehle se khula ho to nayi window nahi, wohi saamne
+  $f = Start-Process powershell.exe -ArgumentList '-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', ('"' + $dir + '\focus-pos.ps1"') -WindowStyle Hidden -Wait -PassThru
+  if ($f.ExitCode -eq 0) { return }
   $paths = @("$env:ProgramFiles\Google\Chrome\Application\chrome.exe", "${env:ProgramFiles(x86)}\Google\Chrome\Application\chrome.exe", "$env:LocalAppData\Google\Chrome\Application\chrome.exe")
   $chrome = $paths | Where-Object { Test-Path $_ } | Select-Object -First 1
   if ($chrome) {

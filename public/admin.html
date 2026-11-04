@@ -36,7 +36,8 @@
   .sgtile.on{border-color:var(--gold);background:rgba(232,185,76,.14);color:var(--gold)}
   .eform{display:flex;flex-direction:column;gap:10px}.eform[hidden]{display:none}
   .etiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px}
-  .etile{padding:12px 10px;border-radius:10px;border:2px solid var(--line);background:var(--panel2,#262a33);color:var(--text,#eee);font-size:16px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px}
+  .etile{padding:12px 10px;border-radius:10px;border:2px solid var(--line);background:var(--panel2,#262a33);color:var(--text,#eee);font-size:16px;font-weight:700;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:2px;min-height:74px}
+  .etile small{font-weight:400;font-size:11px;color:var(--mute);text-align:center}
   .etile.on{border-color:var(--gold);background:rgba(232,185,76,.16);color:var(--gold)}
   .etile.ora{background:#e8792b;border-color:#e8792b;color:#fff;grid-column:span 2}.etile.ora small{font-weight:400;font-size:12px;color:#fff}
   .etile.ora.on{background:#ff8f3f;border-color:#fff;color:#fff;box-shadow:0 0 0 3px rgba(232,121,43,.45)}
@@ -69,6 +70,22 @@
   .stat{background:var(--panel2);border-radius:12px;padding:12px}.stat small{color:var(--mute)}.stat b{display:block;font-size:22px;color:var(--gold)}
   select#catSel{max-width:360px}
   #login{max-width:340px;margin:80px auto}
+  .susti{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.55);animation:sFade 4s ease forwards;pointer-events:none}
+  .susti .emw{position:relative;text-align:center;height:125px}.susti .card{background:#2b1d10;border:3px solid #e8792b;border-radius:22px;padding:26px 34px;text-align:center;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,.6);animation:sPop .5s cubic-bezier(.2,1.6,.4,1)}
+  .susti .em{font-size:110px;line-height:1;display:inline-block;animation:sSway 1.6s ease-in-out infinite;transform-origin:50% 90%}
+  .susti .zz{position:absolute;font-size:30px;font-weight:900;color:#f5c04a;animation:sZz 2s ease-out infinite}
+  .susti .tx{font-size:26px;font-weight:900;color:#ffb067;margin-top:14px}.susti .sm{font-size:15px;color:#e8d7c0;margin-top:6px}
+  @keyframes sFade{0%{opacity:0}8%{opacity:1}85%{opacity:1}100%{opacity:0}}
+  @keyframes sPop{from{transform:scale(.4)}to{transform:scale(1)}}
+  @keyframes sSway{0%,100%{transform:rotate(-12deg)}50%{transform:rotate(12deg)}}
+  @keyframes sZz{0%{opacity:0;transform:translate(0,0) scale(.6)}30%{opacity:1}100%{opacity:0;transform:translate(40px,-70px) scale(1.3)}}
+  .relief{position:fixed;inset:0;z-index:999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5);animation:sFade 3s ease forwards;pointer-events:none;overflow:hidden}
+  .relief .card{background:#13301c;border:3px solid #4caf50;border-radius:22px;padding:24px 36px;text-align:center;max-width:90vw;box-shadow:0 10px 40px rgba(0,0,0,.6);animation:sPop .5s cubic-bezier(.2,1.6,.4,1)}
+  .relief .em{font-size:110px;line-height:1.1;display:inline-block;animation:rJump 1s ease-in-out infinite}
+  .relief .tx{font-size:28px;font-weight:900;color:#8fe39b;margin-top:8px}.relief .sm{font-size:16px;color:#d6f5da;margin-top:6px}
+  .relief .fl{position:absolute;bottom:-60px;animation:rUp 2.6s ease-out forwards}
+  @keyframes rJump{0%,100%{transform:translateY(0) scale(1)}50%{transform:translateY(-14px) scale(1.08)}}
+  @keyframes rUp{0%{transform:translateY(0) rotate(0);opacity:0}15%{opacity:1}100%{transform:translateY(-105vh) rotate(25deg);opacity:0}}
 </style>
 </head>
 <body>

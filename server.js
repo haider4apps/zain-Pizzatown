@@ -1418,6 +1418,8 @@ try {
   db.prepare("update stock_items set name='Lazania Strip' where name='Lasagna Strip'").run();
 } catch (e) { console.error('lazania', e.message); }
 
+// Windows: desktop par "Pizza Town" icon na ho to bana do (tray se chalne wale PCs ke liye)
+if (process.platform === 'win32') setTimeout(() => { try { execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'make-icon.ps1')], { windowsHide: true, timeout: 30000 }, () => {}); } catch (e) {} }, 5000);
 const server = app.listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
   console.log(`Pizza Town POS v${PKG.version} chal gaya.`);

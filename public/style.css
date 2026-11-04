@@ -175,3 +175,25 @@ a.btn{color:inherit}
 .blklist div{background:#3d1717;border-radius:8px;padding:8px 12px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .blklist b{color:#fff;font-size:17px}.blklist span{color:#ffb4a8}
 .btn.red{background:#c62828;color:#fff;border-color:#c62828}
+
+/* upar stock ke button (khatam laal, kam peela) + popup list */
+.btn.stk{font-weight:800;white-space:nowrap;text-decoration:none;margin-right:6px}
+.btn.stk{position:relative;overflow:visible}
+/* ginti: button ke upar daayein kone mein gol daire mein */
+.btn.stk b{position:absolute;top:-9px;right:-9px;min-width:24px;height:24px;padding:0 5px;border-radius:99px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:900;border:2px solid var(--panel,#1c1f26);box-shadow:0 1px 4px rgba(0,0,0,.5);z-index:2}
+.btn.stk.out{background:#c62828;border-color:#c62828;color:#fff}.btn.stk.out b{background:#fff;color:#c62828}
+.btn.stk.low{background:#f5c04a;border-color:#f5c04a;color:#3a2e10}.btn.stk.low b{background:#c62828;color:#fff}
+.btn.stk.add{background:var(--panel2,#262a33);color:var(--gold);border-color:var(--gold)}
+.btn.stk[hidden]{display:none}
+.stklist{display:flex;flex-direction:column;gap:6px;max-height:60vh;overflow:auto}
+.stkrow{display:flex;justify-content:space-between;gap:10px;padding:10px 12px;border-radius:10px;font-size:16px}
+.stkrow.out{background:#4a1818;color:#ffd2cc}.stkrow.low{background:#3a2e10;color:#f5c04a}.stkrow span{opacity:.9;white-space:nowrap}
+@media (max-width:760px){.btn.stk.add{display:none}.btn.stk{padding:8px 11px;margin-right:8px;flex:0 0 auto}.btn.stk .lbl{display:none}}
+
+/* doosri POS window ruk jaye (one.js) */
+#oneBlock{position:fixed;inset:0;z-index:9999;background:rgba(10,12,16,.96);display:flex;align-items:center;justify-content:center;padding:20px}
+#oneBlock .ob-card{max-width:520px;text-align:center;background:var(--panel,#1c1f26);border:2px solid var(--gold,#e8b94c);border-radius:18px;padding:28px}
+#oneBlock .ob-em{font-size:64px}#oneBlock h2{color:var(--gold,#e8b94c);margin:10px 0}
+#oneBlock p{font-size:17px;line-height:1.6;color:#ddd}
+#oneBlock button{margin-top:14px;padding:12px 18px;border-radius:10px;border:1px solid #666;background:#2a2e37;color:#eee;font-size:15px;cursor:pointer}
+#oneBlock small{display:block;color:#999;margin-top:6px}

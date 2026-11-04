@@ -2,6 +2,9 @@
 cd /d "%~dp0"
 rem Git/Node abhi install hue hon to PATH mein shamil karo
 set "PATH=%PATH%;%ProgramFiles%\nodejs;%ProgramFiles%\Git\cmd"
+rem POS pehle se khula ho to nayi window/server nahi: wohi window saamne
+powershell -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "%~dp0focus-pos.ps1"
+if %errorlevel%==0 exit /b 0
 where node >nul 2>nul || ( echo Node.js install nahi hai. Pehle setup.bat chalayen. & pause & exit /b 1 )
 if not exist node_modules call npm install --omit=dev
 start "PizzaTown Server" /min cmd /c "run-server.bat"
