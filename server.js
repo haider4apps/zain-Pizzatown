@@ -94,6 +94,14 @@ addCol('stock_items', 'rate', 'real default 0');
 addCol('stock_items', 'alert_state', "text default ''");  // aakhri dafa Sheet ko kya bataya (low/out)         // Rs per unit (kg/litre/piece), aakhri "Saman aaya" se          // 1 = sirf takeaway/delivery par (packing)
 addCol('order_items', 'pz', "text default ''");
 addCol('expenses', 'batch', "text default ''");          // ikattha kharcha: kai din par baanta hua, aik hi batch
+// Fryer ka oil + fried cheezein (Oven Baked Wings oven mein, fried nahi)
+const OIL_NAME = 'Frying Oil';
+const FRY_ITEMS = ['Wings', 'Boneless Thai', 'Fries', 'Nuggets', 'Zestful Chicken Strips', 'Hot Shot', 'Chicken Patty', 'Chapli Patty'];
+let FRIED = null;
+const dayDiff = (a, b) => Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 864e5);
+const addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+addCol('stock_items', 'daily_use', 'real default 0');     // roz ka tay kharch (sabzi): recipe nahi, har din khud minus
+db.exec('create table if not exists oil_changes(id integer primary key, date text not null, litres real default 16, note text default \'\', created_at text)');
 addCol('stock_items', 'alert_days', 'real default 0');    // 0 = automatic (Settings wale din, kam se kam 3); warna is item ke apne din          // deal ke pizza flavour + topping
 db.exec(`
 create table if not exists prep_recipes(prep_id integer not null, item_id integer not null, qty real not null, primary key(prep_id,item_id));
@@ -157,8 +165,8 @@ const DEFAULTS = {
   opening_nov4_done: '',
   coat_maida_done: '',            // (internal) wings/thai coating maida aik baar          // (internal) 4 Nov wala shuru ka stock aik baar             // (internal) Nuggets pack 35 wapas             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
 };
-const INTERNAL = new Set(['sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
-const SECRET = new Set(['admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
+const INTERNAL = new Set(['sabzi_oil_done', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
+const SECRET = new Set(['sabzi_oil_done', 'admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -431,6 +439,7 @@ function dailyUsage() {
   const li = db.prepare('select variant_id vid,qty,pz from order_items where order_id=?'), map = {};
   orders.forEach(o => Object.entries(stockNeed(li.all(o.id).filter(l => l.vid), o.type)).forEach(([id, q]) => { map[id] = (map[id] || 0) + q; }));
   Object.keys(map).forEach(k => { map[k] = map[k] / days; });
+  db.prepare('select id,daily_use from stock_items where daily_use>0 and active=1').all().forEach(r => { map[r.id] = (map[r.id] || 0) + r.daily_use; });
   USAGE = { key: bd, at: Date.now(), map, days };
   return USAGE;
 }
@@ -448,9 +457,16 @@ function stockList() {
     if (!known.has(i.id)) status = 'unset';
     else if (b <= 0) status = 'out';
     const aDays = i.alert_days > 0 ? i.alert_days : alertDays;   // is item ka alert: apne din ya automatic
+    if (i.name === OIL_NAME) {   // Fryer ka oil: roz nahi ghatta, poora 16 litre badalta hai. Halat agle badalne ke andaze se
+      const os = oilStatus(), need = os.litres;
+      const st2 = b >= need ? 'ok' : os.remain <= 0 ? 'out' : os.remain <= aDays ? 'low' : 'ok';
+      return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: r2(need / os.avgD), days: Math.max(0, os.remain), status: st2,
+        alert_days: aDays, alert_auto: !(i.alert_days > 0), auto_days: alertDays, oil: os,
+        sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0, daily_use: 0 };
+    }
     if (status === 'ok' && ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= aDays))) status = 'low';   // itne din ya kam ka stock = peela
     return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status,
-      alert_days: aDays, alert_auto: !(i.alert_days > 0), auto_days: alertDays,
+      alert_days: aDays, alert_auto: !(i.alert_days > 0), auto_days: alertDays, daily_use: i.daily_use || 0,
       sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0 };
   });
 }
@@ -525,7 +541,7 @@ const qtyTxtSrv = i => (i.sub_per && Math.abs(i.bal) < 1 ? `${Math.round(i.bal *
 app.get('/api/stock/alerts', (req, res) => {
   try {
     const list = stockList(), by = Object.fromEntries(list.map(i => [i.id, i]));
-    const alerts = list.filter(i => i.status === 'out' || i.status === 'low').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1));
+    const alerts = list.filter(i => (i.status === 'out' || i.status === 'low') && i.grp !== 'Sabzi').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1));
     const variants = {}, byName = Object.fromEntries(list.map(i => [i.name, i]));
     db.prepare('select v.id from variants v where v.active=1 and v.deleted=0').all().forEach(({ id }) => {
       const bl = stockBlockers([{ vid: id, qty: 1 }]);
@@ -1041,14 +1057,16 @@ function computeDemand(days) {
   stockList().forEach(i => {
     const perDay = U.map[i.id] || 0, bal = Math.max(0, i.bal);
     let need = perDay * days - bal;
+    if (i.oil) need = i.oil.remain <= days ? i.oil.litres - bal : 0;   // oil: badalne ka waqt in dinon mein aaye to poora 16 litre (jo pada hai woh minus)
     if (perDay === 0 && (i.status === 'out' || i.status === 'low')) need = Math.max(need, i.pack_size || 1, i.min_level - bal);
     if (i.min_level > 0) need = Math.max(need, i.min_level + perDay * days - bal);
     if (need <= 1e-9) return;
     const packs = i.pack_size > 0 ? Math.ceil(need / i.pack_size - 1e-9) : null;
     rows.push({ name: i.name, grp: i.grp || 'Dusra', unit: i.unit, sub_unit: i.sub_unit, sub_per: i.sub_per, bal: r2(bal), per_day: Math.round(perDay * 1000) / 1000,
       need: Math.round(need * 1000) / 1000, packs, pack_size: i.pack_size, pack_name: i.pack_name, buy: packs ? r2(packs * i.pack_size) : Math.round(need * 100) / 100,
-      cost: i.rate ? Math.round((packs ? packs * i.pack_size : need) * i.rate) : null, status: i.status, days_left: perDay > 0 ? Math.round(bal / perDay * 10) / 10 : null, id: i.id, rate: i.rate || 0,
-      alert_days: i.alert_days, urg: bal <= 0 || i.status === 'out' ? 0 : i.status === 'low' ? 1 : 2 });   // 0 khatam, 1 zaroori, 2 kam zaroori
+      cost: i.rate ? Math.round((packs ? packs * i.pack_size : need) * i.rate) : null, status: i.status, days_left: i.oil ? i.oil.remain : perDay > 0 ? Math.round(bal / perDay * 10) / 10 : null, id: i.id, rate: i.rate || 0,
+      alert_days: i.alert_days, urg: i.oil ? (i.oil.remain <= 0 ? 0 : i.oil.remain <= i.alert_days ? 1 : 2) : bal <= 0 || i.status === 'out' ? 0 : i.status === 'low' ? 1 : 2,
+      daily: (i.daily_use || 0) > 0, oil_note: i.oil ? `Oil badalna ~${i.oil.next} (${i.oil.day}va din, ${i.oil.fried} fried)` : '' });   // 0 khatam, 1 zaroori, 2 kam zaroori
   });
   // Tarteeb: pehle khatam, phir zaroori (alert ke din se kam), phir kam zaroori; har hisse mein jo pehle khatam ho wo upar
   rows.sort((a, b) => a.urg - b.urg || (a.days_left ?? -1) - (b.days_left ?? -1) || a.name.localeCompare(b.name));
@@ -1118,14 +1136,14 @@ admin.post('/expenses', (req, res) => {
   const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : businessDate();
   const now = fmtDT(new Date()), category = String(b.category || 'Other').slice(0, 40), note = String(b.note || '').slice(0, 200);
   const sync = syncOn(), days = Math.min(30, Math.max(1, int(b.days, 1)));
-  // Ikattha kharcha: kul raqam chuni date se aage itne din par barabar baant di jati hai (har din ka profit theek rahe)
+  // Ikattha kharcha: kul raqam chuni date TAK pichle itne din par barabar baant di jati hai (jin dinon kharcha alag se nahi likha gaya)
   const batch = days > 1 ? uuid() : '', each = Math.floor(amount / days), extra = amount - each * days;
   const ins = db.prepare('insert into expenses(uid,date,category,note,amount,queued,created_at,batch) values(?,?,?,?,?,?,?,?)');
   let id = 0;
   db.transaction(() => { for (let k = 0; k < days; k++) {
-    const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() + k);
+    const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() - (days - 1) + k);
     const dt = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
-    const amt = each + (k === 0 ? extra : 0), nt = days > 1 ? `${note ? note + ' · ' : ''}${days} din ka ${amount} (${k + 1}/${days})`.slice(0, 200) : note, uidv = uuid();
+    const amt = each + (k === 0 ? extra : 0), nt = days > 1 ? `${note ? note + ' · ' : ''}${({ Salary: 'Salary', Rent: 'Rent', 'Bijli/Pani': 'Bill' })[category] || 'Ikattha kharcha'} ka hissa: ${days} din ka Rs ${amount} (${k + 1}/${days})`.slice(0, 200) : note, uidv = uuid();
     const r = ins.run(uidv, dt, category, nt, amt, sync ? 1 : 0, now, batch).lastInsertRowid; if (!id) id = r;
     if (sync) enqueue('expenses', uidv, [uidv, dt, category, nt, amt, now]);
   } })();
@@ -1163,10 +1181,11 @@ admin.get('/report', (req, res) => {
   totals.net = totals.profit - totals.expenses;
   const dayRows = db.prepare(`select business_date d, count(*) n, sum(subtotal) subtotal, sum(total) total, sum(cost) cost, sum(profit) profit
     from orders where ${W} group by business_date`).all(...A);
+  const ikByDay = {}; db.prepare("select date d, category c, sum(amount) s from expenses where deleted=0 and batch!='' and date between ? and ? group by date,category").all(...A).forEach(r => ((ikByDay[r.d] = ikByDay[r.d] || {})[r.c] = r.s));
   const expByDay = Object.fromEntries(db.prepare('select date d, sum(amount) s from expenses where deleted=0 and date between ? and ? group by date').all(...A).map(r => [r.d, r.s]));
   const days = {};
   dayRows.forEach(r => (days[r.d] = { ...r, expenses: 0 }));
-  Object.entries(expByDay).forEach(([d, s]) => { days[d] = days[d] || { d, n: 0, subtotal: 0, total: 0, cost: 0, profit: 0, expenses: 0 }; days[d].expenses = s; });
+  Object.entries(expByDay).forEach(([d, s]) => { days[d] = days[d] || { d, n: 0, subtotal: 0, total: 0, cost: 0, profit: 0, expenses: 0 }; days[d].expenses = s; days[d].split = ikByDay[d] || null; });
   const dayList = Object.values(days).sort((a, b) => (a.d < b.d ? 1 : -1)).map(x => ({ ...x, net: x.profit - x.expenses }));
   res.json({
     from, to, now: businessDate(), totals, days: dayList,
@@ -1417,6 +1436,75 @@ try {
   db.prepare("update items set name='Lazania Pizza' where name='Lasagna Pizza'").run();
   db.prepare("update stock_items set name='Lazania Strip' where name='Lasagna Strip'").run();
 } catch (e) { console.error('lazania', e.message); }
+
+// ---------- Fryer ka oil (poora badalta hai) + roz ki sabzi ----------
+function friedMap() {
+  if (FRIED && Date.now() - FRIED.at < 10 * 60 * 1000) return FRIED.map;
+  const map = {}, ids = db.prepare(`select id from stock_items where name in (${FRY_ITEMS.map(() => '?').join(',')})`).all(...FRY_ITEMS).map(r => r.id);
+  if (ids.length) db.prepare(`select distinct r.variant_id v from recipes r join variants va on va.id=r.variant_id join items it on it.id=va.item_id where it.name!='Oven Baked Wings' and r.item_id in (${ids.join(',')})`).all().forEach(r => (map[r.v] = 1));
+  // Deal: jitne fried hisse (maslan Student Deal: zinger + wings + nuggets = 3)
+  const deal = {}; db.prepare('select variant_id v, part_vid p, qty from deal_parts').all().forEach(r => { if (map[r.p]) deal[r.v] = (deal[r.v] || 0) + r.qty; });
+  Object.entries(deal).forEach(([v, n]) => (map[v] = n));
+  FRIED = { at: Date.now(), map }; return map;
+}
+// from (shamil) se to (shamil) tak kitni fried cheezein biken
+function friedCount(from, to) {
+  const m = friedMap(); let n = 0;
+  db.prepare("select oi.variant_id v, oi.qty from order_items oi join orders o on o.id=oi.order_id where o.status='done' and o.business_date between ? and ?").all(from, to)
+    .forEach(r => { if (m[r.v]) n += r.qty * m[r.v]; });
+  return n;
+}
+// Pichli baariyon (din + fried ginti) se seekh kar agla badalna: jo pehle aaye — andaze ke din, ya andaze ki fried ginti
+function oilStatus() {
+  const bd = businessDate(), ch = db.prepare('select date,litres from oil_changes order by date').all();
+  const cyc = []; for (let k = 1; k < ch.length; k++) cyc.push({ from: ch[k - 1].date, to: ch[k].date, days: dayDiff(ch[k - 1].date, ch[k].date), fried: friedCount(ch[k - 1].date, addDays(ch[k].date, -1)) });
+  const last = ch.length ? ch[ch.length - 1] : null, litres = last ? last.litres || 16 : 16;
+  const use = cyc.slice(-4), avgD = use.length ? use.reduce((t, c) => t + c.days, 0) / use.length : 6.5, avgF = use.length ? use.reduce((t, c) => t + c.fried, 0) / use.length : 175;
+  const rate = Math.max(1, friedCount(addDays(bd, -7), addDays(bd, -1)) / 7);   // roz ki fried (pichle 7 din)
+  if (!last) return { litres, avgD, avgF, rate, cycles: cyc, last: null, day: 0, fried: 0, remain: 99, next: null };
+  const gone = dayDiff(last.date, bd), fried = friedCount(last.date, bd);
+  const remain = Math.round(Math.min(avgD - gone, (avgF - fried) / rate) * 10) / 10;
+  return { litres, avgD: Math.round(avgD * 10) / 10, avgF: Math.round(avgF), rate: Math.round(rate * 10) / 10, cycles: cyc, last: last.date, day: gone + 1, fried, remain, next: addDays(bd, Math.max(0, Math.ceil(remain))) };
+}
+admin.post('/stock/oil-change', (req, res) => {
+  const b = req.body || {}, date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : businessDate(), now = fmtDT(new Date());
+  const it = db.prepare('select id from stock_items where name=? and active=1').get(OIL_NAME); if (!it) return res.status(400).json({ error: 'Frying Oil item nahi mila' });
+  if (db.prepare('select 1 from oil_changes where date=?').get(date)) return res.status(400).json({ error: 'Is din oil badalna pehle se likha hai' });
+  const lit = Math.max(1, num(b.litres) || 16);
+  db.transaction(() => {
+    db.prepare('insert into oil_changes(date,litres,note,created_at) values(?,?,?,?)').run(date, lit, 'Admin se', now);
+    db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'adjust',?,?,?)").run(it.id, -lit, date, `Fryer ka oil badla (${lit} litre)`, now);
+  })();
+  logEvent('stock', `Fryer ka oil badla: ${date}, ${lit} litre`);
+  stockAlertCheck(); res.json({ ok: true, status: oilStatus() });
+});
+// Sabzi: har guzra hua din apna roz ka kharch minus karta hai (aaj ki sabzi aaj stock mein dikhe, kal subah ghate). Sirf jab stock aik dafa daala ja chuka ho. PC band raha to pichle din bhi (max 10)
+function sabziDaily() {
+  try {
+    const bd = businessDate(), now = fmtDT(new Date());
+    db.prepare('select id,name,daily_use from stock_items where daily_use>0 and active=1').all().forEach(i => {
+      const first = db.prepare("select min(date) d from stock_moves where item_id=? and kind not in ('out','daily')").get(i.id).d; if (!first) return;
+      const last = db.prepare("select max(date) d from stock_moves where item_id=? and kind='daily'").get(i.id).d;
+      let d = last ? addDays(last, 1) : first; if (dayDiff(d, bd) > 10) d = addDays(bd, -10);
+      for (; d < bd; d = addDays(d, 1)) db.prepare("insert into stock_moves(item_id,qty,kind,date,note,created_at) values(?,?,'daily',?,?,?)").run(i.id, -i.daily_use, d, 'Roz ki sabzi', now);
+    });
+  } catch (e) { console.error('sabzi', e.message); }
+}
+// Aik baar: Sabzi (4 cheezein, roz ka kharch) + Frying Oil (khula litre, alert 1 din) + oil ki pichli baariyan (owner: aaj 4 Nov teesra din; pehle 7 din, us se pehle 6 din)
+try {
+  if (!getSettings().sabzi_oil_done) {
+    const now = fmtDT(new Date()), has = n => db.prepare('select id from stock_items where name=? and active=1').get(n);
+    const ins = db.prepare("insert into stock_items(name,unit,grp,sub_unit,sub_per,pack_size,pack_name,daily_use,alert_days,created_at) values(?,?,?,?,?,?,?,?,?,?)");
+    db.transaction(() => {
+      [['Shimla Mirch', 1], ['Tamatar', 1], ['Piyaz', 0.3], ['Band Gobhi', 1]].forEach(([n, d]) => { if (!has(n)) ins.run(n, 'kg', 'Sabzi', 'g', 1000, 0, '', d, 1, now); });
+      if (!has(OIL_NAME)) ins.run(OIL_NAME, 'litre', 'Raw saman', '', 0, 1, 'Litre', 0, 1, now);
+      if (!db.prepare('select count(*) n from oil_changes').get().n) ['2026-10-20', '2026-10-26', '2026-11-02'].forEach(d => db.prepare('insert into oil_changes(date,litres,note,created_at) values(?,16,?,?)').run(d, 'Owner ka bataya pattern', now));
+    })();
+    setSetting('sabzi_oil_done', now);
+    logEvent('setting', 'Sabzi (roz ka kharch) aur Frying Oil (badalne ka hisaab) stock mein lag gaye');
+  }
+} catch (e) { console.error('sabzi/oil', e.message); }
+sabziDaily(); setInterval(sabziDaily, 10 * 60 * 1000);
 
 // Windows: desktop par "Pizza Town" icon na ho to bana do (tray se chalne wale PCs ke liye)
 if (process.platform === 'win32') setTimeout(() => { try { execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'make-icon.ps1')], { windowsHide: true, timeout: 30000 }, () => {}); } catch (e) {} }, 5000);
