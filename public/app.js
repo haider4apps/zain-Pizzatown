@@ -361,7 +361,7 @@ function stockBlock(d, retry) {
   m.innerHTML = `<div class="sheet blk"><div class="blkhead">⛔ STOCK KHATAM HAI</div>
     <div style="font-size:17px;line-height:1.5">Ye order nahi lag sakta. Is ka zaroori saman khatam hai:</div>
     <div class="blklist">${d.blockers.map(b => `<div><b>${esc(b.name)}</b><span>chahiye ${b.need} ${esc(b.unit)} · bacha ${Math.max(0, b.bal)} ${esc(b.unit)}</span></div>`).join('')}</div>
-    <div style="color:#ffd2cc;font-size:14px">Saman aa gaya hai to Admin pehle <b>Stock → Saman aaya</b> mein daale. Abhi zaroori ho to Admin PIN se order lag sakta hai (har dafa PIN mangega).</div>
+    <div style="color:#ffd2cc;font-size:14px">Saman aa gaya hai to Admin pehle <b>Stock → Naya saman daalein</b> mein daale. Abhi zaroori ho to Admin PIN se order lag sakta hai (har dafa PIN mangega).</div>
     ${d.wrong_pin ? '<div style="color:#ff8a80;font-weight:800">PIN ghalat tha</div>' : ''}
     <input id="blkPin" type="password" inputmode="numeric" placeholder="Admin PIN" style="font-size:20px;text-align:center">
     <div class="two"><button class="btn" id="blkNo">Wapas</button><button class="btn red" id="blkYes">PIN se order lagayein</button></div></div>`;

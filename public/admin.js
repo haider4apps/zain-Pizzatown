@@ -23,13 +23,13 @@ async function login(pin) {
 }
 $('#pinOk').onclick = () => login($('#pin').value);
 $('#pin').onkeydown = e => { if (e.key === 'Enter') login($('#pin').value); };
-$('#tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; tab = b.dataset.t; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b)); show(); };
+$('#tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return; window._q = {}; /* tab badla to purana search saaf */ tab = b.dataset.t; document.querySelectorAll('#tabs button').forEach(x => x.classList.toggle('on', x === b)); show(); };
 // Har button par mouse rakhne se us ka maqsad (title)
 const TIPS = {
   '[data-act="cnt"]': 'Ginti: dukaan mein asal kitna pada hai gin kar likhein (pack + khula). Stock seedha us par set ho jata hai.',
-  '[data-act="min"]': 'Kam-az-kam: is se kam stock reh jaye to peela alert. (3 din wala alert is ke ilawa khud bhi chalta hai)',
+  '[data-act="alert"]': 'Alert kab: jab stock itne din ka reh jaye to peela alert. Automatic 3 din, har item ke din alag bhi rakh sakte hain.',
   '[data-act="pack"]': 'Pack size: 1 pack mein kitna aata hai. Sirf tab badlein jab company pack badle (Admin PIN).',
-  '[data-act="rate"]': 'Rate: 1 pack kitne Rs ka. "Saman aaya" mein Rs likhne se khud update hota hai.',
+  '[data-act="rate"]': 'Rate: 1 pack kitne Rs ka. "Naya saman daalein" mein Rs likhne se khud update hota hai.',
   '[data-act="cx"]': 'Order cancel: sale se nikal jaye ga (Sheet mein ulti entry).',
   '[data-act="pv"]': 'Slip dekhein (print nahi hogi)', '[data-act="rp"]': 'Slip dobara print karein',
   '[data-act="dx"]': 'Ye kharcha delete karein', '[data-act="addvar"]': 'Is item ka naya size / qeemat jorein',
@@ -191,13 +191,13 @@ async function viewSales() {
     <div class="stat"><small>Service charges</small><b>${money(t.service)}</b></div>
     <div class="stat"><small>Cost (lagat)</small><b>${money(t.cost)}</b></div><div class="stat"><small>Profit (items)</small><b>${money(t.profit)}</b></div>
     <div class="stat"><small>Kharcha</small><b>${money(t.expenses)}</b></div><div class="stat"><small>Net profit</small><b style="color:${t.net < 0 ? 'var(--red)' : 'var(--gold)'}">${money(t.net)}</b></div></div>
-  ${r.missing_cost ? `<div class="box" style="border-color:var(--red)">⚠ ${r.missing_cost} items/sizes saman ka rate abhi nahi - un ki lagat 0 ginti hai aur profit zyada dikhega. Stock mein "Saman aaya" ke saath Rs likhein ya Rate daalein.</div>` : ''}
+  ${r.missing_cost ? `<div class="box" style="border-color:var(--red)">⚠ ${r.missing_cost} items/sizes saman ka rate abhi nahi - un ki lagat 0 ginti hai aur profit zyada dikhega. Stock mein "Naya saman daalein" ke saath Rs likhein ya Rate daalein.</div>` : ''}
   <div class="box" id="dayBox"><b>Din ba din</b>${tbl(['Date', 'Orders', 'Sale', 'Cost', 'Profit', 'Kharcha', 'Net'], r.days.map(d => [d.d, d.n, money(d.total), money(d.cost), money(d.profit), money(d.expenses), money(d.net)]))}</div>
   <div class="box"><b>Order type</b>${tbl(['Type', 'Orders', 'Amount'], r.by_type.map(x => [TYPES[x.type], x.n, money(x.total)]))}
     <b>Payment</b>${tbl(['Method', 'Orders', 'Amount'], r.by_payment.map(x => [x.payment === 'Gift' ? 'Gift / Free' : x.payment, x.n, money(x.total)]))}
     ${r.gifts.length ? `<b>Gift / Free orders (kis ne diye)</b>${tbl(['Kis ki taraf se', 'Orders', 'Bill value', 'Lagat (nuqsan)'], r.gifts.map(g => [esc(g.by_whom), g.n, money(g.value), money(g.cost)]))}` : ''}
     <b>Delivery riders</b>${tbl(['Rider', 'Orders', 'Total collected', 'Delivery charges'], r.riders.map(x => [esc(x.rider || '(no name)'), x.n, money(x.total), money(x.delivery)]))}</div>
-  <div class="box" id="topBox"><div class="r"><b style="flex:1">Har item ki sale aur profit <small style="color:var(--mute);font-weight:400">(${r.top.length} items, zyada bikne wale upar)</small></b>${r.top.length > 15 ? '<button class="btn s" id="topAll"></button>' : ''}</div>${r.top.length > 5 ? sBar('qTop', 'Item dhoondein (maslan zinger, large, deal)') : ''}${tbl(['Item', 'Qty', 'Amount', 'Profit'], r.top.map(x => [esc(x.item_name + (x.variant_label ? ' (' + x.variant_label + ')' : '')), x.qty, money(x.amount), money(x.profit)]))}</div>
+  <div class="box" id="topBox"><div class="r"><b style="flex:1">Har item ki sale aur profit <small style="color:var(--mute);font-weight:400">(${r.top.length} items, zyada bikne wale upar)</small></b>${r.top.length > 15 ? '<button class="btn s" id="topAll"></button>' : ''}</div>${r.top.length > 5 ? sBar('qTop', 'Item dhoondein (maslan zinger, large, deal)') : ''}${tbl(['Item', 'Kitne bike', 'Sale', 'Recipe ki lagat<br><small>(1 ki)</small>', 'Recipe ki lagat<br><small>(kul)</small>', 'Profit'], r.top.map(x => [esc(x.item_name + (x.variant_label ? ' (' + x.variant_label + ')' : '')), x.qty, money(x.amount), x.cost ? money(Math.round(x.cost / x.qty)) : '<span style="color:#f5c04a">rate?</span>', x.cost ? money(Math.round(x.cost)) : '—', money(Math.round(x.profit))]))}</div>
   <div class="box" id="ordBox"><div class="r"><b style="flex:1">Orders</b>${(() => { const i = r.order_days.indexOf(r.ord_day);
       return `<button class="btn s" id="oPrev" ${i < 0 || i >= r.order_days.length - 1 ? 'disabled' : ''} title="Pichla din (jis mein orders thay)">◀</button><b style="color:var(--gold);min-width:110px;text-align:center">${r.ord_day}</b><button class="btn s" id="oNext" ${i <= 0 ? 'disabled' : ''} title="Agla din">▶</button>`; })()}</div>
     ${r.orders.length > 5 ? sBar('qOrd', 'Order dhoondein (number, naam, table, rider, Rs)') : ''}<small style="color:var(--mute)">Sirf aik din ke orders (subah ${'5'} baje counter reset tak aik din). ◀ ▶ se doosre din. ${r.orders.length} orders.</small>${tbl(['#', 'Date', 'Time', 'Type', 'Who', 'Total', ''], r.orders.map(o => [
@@ -261,7 +261,7 @@ async function viewExpenses() {
       ${EXP_CATS.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
     <div class="r" id="eStockRow" hidden><select id="eStock"><option value="">Item chunein</option></select><input id="eQty" type="number" step="any" min="0" placeholder="Kitne aaye (tadaad)"></div>
     <div class="r"><input id="eAmt" type="number" min="1" placeholder="Kul kitne Rs diye"><input id="eNote" placeholder="Note (zaroori nahi)"><button class="btn gold s" id="eAdd">+ Add</button></div>
-    <small style="color:var(--mute)">Ek entry = ek kharcha. Saman (cheese, dabbe wagera) <b>Stock → Saman aaya</b> se likhein, wahan se kharcha bhi khud ban jata hai.</small></div>
+    <small style="color:var(--mute)">Ek entry = ek kharcha. Saman (cheese, dabbe wagera) <b>Stock → Naya saman daalein</b> se likhein, wahan se kharcha bhi khud ban jata hai.</small></div>
     <div class="box"><div class="r"><b style="flex:1 1 auto">${mode === 'day' ? day + ' ka' : month + ' ka'} kharcha: ${money(sum)}</b>
       <input type="date" id="vDate" class="n" value="${day}"><button class="btn s${mode === 'day' ? ' gold' : ''}" id="vDay">Sirf yeh din</button><button class="btn s${mode === 'month' ? ' gold' : ''}" id="vMon">Poora mahina</button></div>${list.length > 5 ? sBar('qExp', 'Kharcha dhoondein (category, note, Rs)') : ''}<table><tr><th>Date</th><th>Category</th><th>Note</th><th>Rs</th><th></th></tr>
     ${list.map(x => `<tr><td>${x.date}</td><td>${esc(x.category)}</td><td>${esc(x.note)}</td><td>${money(x.amount)}</td><td><button class="btn red" data-act="dx" data-id="${x.id}">✕</button></td></tr>`).join('') || '<tr><td colspan="5" style="color:var(--mute)">—</td></tr>'}</table></div>`;
@@ -331,7 +331,7 @@ function packDialog(ds) {
   ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center;z-index:60;padding:12px';
   ov.innerHTML = `<div class="box" style="max-width:460px;width:100%;border:3px solid #e53935">
     <div style="background:#e53935;color:#fff;font-weight:900;font-size:20px;text-align:center;padding:10px;border-radius:8px">⚠ PACK SIZE BADAL RAHE HAIN</div>
-    <div style="font-size:16px;line-height:1.5"><b>Stock daalna hai?</b> To ye button nahi, item ke aage <b>"Ginti"</b> par click karein, ya <b>"Saman aaya"</b> se daalein.<br>
+    <div style="font-size:16px;line-height:1.5"><b>Stock daalna hai?</b> To ye button nahi, item ke aage <b>"Ginti"</b> par click karein, ya <b>"Naya saman daalein"</b> se daalein.<br>
     Pack size badalne se <b>${esc(ds.n)}</b> ka hisaab (pack mein kitna aata hai) <b style="color:#ff8a80">kharab ho jayega</b>. Sirf tab badlein jab company ne pack hi badal diya ho.</div>
     <div>Abhi: <b>1 ${esc(ds.pn || 'Pack')} = ${ds.p || '?'} ${esc(ds.u)}</b></div>
     <label>1 pack mein kitne ${esc(ds.u)}?<input id="pkS" type="number" step="any" min="0" value="${ds.p}"></label>
@@ -357,22 +357,26 @@ async function viewStock() {
   const groups = [...new Set(GORD.concat(items.map(i => i.grp || 'Dusra')))].filter(g => items.some(i => (i.grp || 'Dusra') === g));
   const cnt = (g, st) => items.filter(i => (i.grp || 'Dusra') === g && i.status === st).length;
   const rateTxt = i => (i.rate ? `Rs ${Math.round(i.rate * (i.pack_size || 1))}/${i.pack_size ? (i.pack_name || 'pack') : i.unit}` : 'Rate?');
-  window._open = window._open || {};
+  const curG = groups.includes(window._sg) ? window._sg : groups[0];
   const packTxt = i => (i.pack_size ? `${i.pack_name || 'Pack'} = ${i.pack_size} ${i.unit}` : 'Pack size?');
   view.innerHTML = `
-  <div class="box"><b style="color:var(--gold)">Stock ki halat</b>
-    ${sBar('qSt', 'Stock item dhoondein (maslan cheese, dabba, maida)')}
-    ${groups.map(g => `<details class="sg" data-g="${esc(g)}"${window._open[g] ? ' open' : ''}><summary><span class="chev">▸</span><span>${esc(g)}</span> <small style="color:var(--mute)">(${items.filter(i => (i.grp || 'Dusra') === g).length} items)</small><small class="tap">tap karke kholein</small>${cnt(g, 'low') ? `<span class="redc yel" title="Kam">${cnt(g, 'low')}</span>` : ''}${cnt(g, 'out') ? `<span class="redc" title="Khatam">${cnt(g, 'out')}</span>` : ''}</summary>
-    <table><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din</th><th>Halat</th><th></th></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => { const t = ST_TXT[i.status]; return `<tr class="st-${i.status}"><td>${esc(i.name)}</td><td><b>${qtyTxt(i, i.bal)}</b></td><td>${i.per_day ? fmtQ(i, i.per_day) : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
-      <td><span style="background:${t[2]};color:${t[1]};border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px">${t[0]}</span></td>
-      <td style="white-space:nowrap"><button class="btn s" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}" data-u="${i.unit}">Ginti</button> <button class="btn s" data-act="min" data-id="${i.id}" data-m="${i.min_level}" data-n="${esc(i.name)}" data-u="${i.unit}">Kam-az-kam: ${i.min_level} ${i.unit}</button> <button class="btn s" data-act="pack" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || ''}" data-pn="${esc(i.pack_name || '')}">${esc(packTxt(i))}</button> <button class="btn s" data-act="rate" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || 0}" data-pn="${esc(i.pack_name || 'pack')}" data-r="${i.rate || 0}">${esc(rateTxt(i))}</button></td></tr>`; }).join('') + '</table></details>').join('') || '<div style="color:var(--mute)">Abhi koi item nahi.</div>'}
-    <small style="color:var(--mute)">"Kitne din" pichle 7 din ki sale se nikalta hai. "Ginti" = asal bacha hua likhein, farq khud theek ho jata hai. Dabba, food bag aur ketchup sirf Takeaway/Delivery par minus hote hain. Butter paper, foil aur pasta packing har order par.</small></div>
   <div class="box"><b style="color:var(--gold)">Demand slip (bazaar se kya lana hai)</b>
     <div class="r"><span>Kitne din ka saman?</span><select id="dmDays" class="n">${[3, 4, 5, 6, 7, 10, 14].map(d => `<option value="${d}">${d} din</option>`).join('')}</select><button class="btn gold s" id="dmGo">🧾 Demand banao</button></div>
     <small style="color:var(--mute)">Pichle 7 din ki asal sale se roz ki khapat nikal kar, jitne din chunein utna saman minus jo bacha hai. Pack mein gol kar ke.</small>
     <div id="dmSearch" hidden>${sBar('qDm', 'Demand mein item dhoondein')}</div>
     <div id="dmBox"></div></div>
-  <div class="box"><b style="color:var(--gold)">Saman aaya (+)</b>
+  <div class="box"><b style="color:var(--gold)">📦 Stock ki halat (kya kitna bacha hai)</b>
+    ${sBar('qSt', 'Stock item dhoondein (maslan cheese, dabba, maida)')}
+    <div class="sgtiles">${groups.map(g => `<button class="sgtile${g === curG ? ' on' : ''}" data-sg="${esc(g)}"><span>${esc(g)}</span><small>${items.filter(i => (i.grp || 'Dusra') === g).length} items</small><span class="chips">${cnt(g, 'out') ? `<span class="redc" title="Khatam">${cnt(g, 'out')} khatam</span>` : ''}${cnt(g, 'low') ? `<span class="redc yel" title="Kam">${cnt(g, 'low')} kam</span>` : ''}</span></button>`).join('')}</div>
+    ${groups.map(g => `<div class="sgp" data-g="${esc(g)}"${g === curG ? '' : ' hidden'}><div class="sgh">${esc(g)}</div>
+    <div class="tw"><table class="stt"><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din ka</th><th>Halat</th><th>Ginti karein<br><small>asal kitna pada hai</small></th><th>Alert kab<br><small>kitne din reh jaye</small></th><th>Pack size<br><small>1 pack mein</small></th><th>Rate<br><small>1 pack ka</small></th></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => { const t = ST_TXT[i.status]; return `<tr class="st-${i.status}"><td>${esc(i.name)}</td><td><b>${qtyTxt(i, i.bal)}</b></td><td>${i.per_day ? fmtQ(i, i.per_day) : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
+      <td><span style="background:${t[2]};color:${t[1]};border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px;white-space:nowrap">${t[0]}</span></td>
+      <td><button class="btn s cb" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}" data-u="${i.unit}">Ginti</button></td>
+      <td><button class="btn s cb" data-act="alert" data-id="${i.id}" data-n="${esc(i.name)}" data-a="${i.alert_auto ? '' : i.alert_days}" data-auto="${i.auto_days}">${i.alert_days} din${i.alert_auto ? ' <small>(auto)</small>' : ''}</button></td>
+      <td><button class="btn s cb" data-act="pack" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || ''}" data-pn="${esc(i.pack_name || '')}">${esc(packTxt(i))}</button></td>
+      <td><button class="btn s cb" data-act="rate" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || 0}" data-pn="${esc(i.pack_name || 'pack')}" data-r="${i.rate || 0}">${esc(rateTxt(i))}</button></td></tr>`; }).join('') + '</table></div></div>').join('') || '<div style="color:var(--mute)">Abhi koi item nahi.</div>'}
+    <small style="color:var(--mute)">"Kitne din ka" pichle 7 din ki sale se nikalta hai. "Ginti" = asal bacha hua likhein, farq khud theek ho jata hai. "Alert kab" = jab stock itne din ka reh jaye to peela alert (automatic ${(items[0] || {}).auto_days || 3} din). Dabba, food bag aur ketchup sirf Takeaway/Delivery par minus hote hain.</small></div>
+  <div class="box"><b style="color:var(--gold)">➕ Naya saman daalein</b>
     ${sBar('qIn', 'Kya aaya? Naam likhein, list chhoti ho jayegi')}
     <div class="r"><select id="iItem"><option value="">Kya aaya? (chunein)</option>${(() => {
       const st = { out: '⛔ khatam', low: '⚠ kam' }, short = items.filter(i => i.status === 'out' || i.status === 'low').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1) || a.name.localeCompare(b.name));
@@ -381,12 +385,6 @@ async function viewStock() {
         + GORD.map(g => `<optgroup label="${esc(g)}">${items.filter(i => (i.grp || 'Dusra') === g && !st[i.status]).map(o).join('')}</optgroup>`).join('');
     })()}</select><input id="iPacks" type="number" step="any" min="0" placeholder="Kitne pack"><input id="iQty" type="number" step="any" min="0" placeholder="ya kul miqdar"><input id="iAmt" type="number" min="0" placeholder="Kitne Rs (zaroori)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ Add</button></div>
     <small style="color:var(--mute)" id="iHint">Pack size set ho to sirf "Kitne pack" likhein (maslan 3), kg khud ban jayenge. Rs likhna zaroori hai, ye Kharcha mein bhi khud darj ho jata hai aur saman ka rate bhi update hota hai.</small></div>
-  <div class="box"><b style="color:var(--gold)">Shuru ka stock / sab ki ginti (aik saath)</b>
-    <small style="color:var(--mute)">Jo saman abhi dukaan mein hai us ki miqdar likhein (kg / litre / piece). Khali chhorein to wo item nahi badlega.</small>
-    ${sBar('qBulk', 'Ginti ke liye item dhoondein')}
-    <table id="bulkT"><tr><th>Item</th><th>System mein</th><th>Asal mein</th></tr>
-    ${groups.map(g => `<tr class="gh"><td colspan="3" style="color:var(--gold);font-weight:700;padding-top:10px">${esc(g)}</td></tr>` + items.filter(i => (i.grp || 'Dusra') === g).map(i => `<tr><td>${esc(i.name)}</td><td>${+i.bal.toFixed(3)} ${i.unit}</td><td><input class="n bulk" data-id="${i.id}" type="number" step="any" min="0" placeholder="${i.unit}" style="max-width:130px"> <small class="bq" style="color:var(--gold)"></small></td></tr>`).join('')).join('')}</table>
-    <div class="r"><button class="btn gold s" id="bSave">Sab save karein</button></div></div>
   ${preps.map(p => `<div class="box"><b style="color:var(--gold)">${esc(p.name)} ki recipe (1 batch)</b>
     <small style="color:var(--mute)">Pizza ki recipe mein ${esc(p.name)} gram mein likha hai. Jitna ${esc(p.name)} lagta hai, usi hisaab se neeche wala saman minus hota hai.</small>
     <div class="r"><span>1 batch ka kul wazan: <b>${p.prep_yield} g</b></span></div>
@@ -408,7 +406,7 @@ async function viewStock() {
       return `<tr><td>${esc(it ? it.name : '?')}</td><td><b>${+(r.qty * (sp || 1)).toFixed(2)}</b> ${it ? (it.sub_unit || it.unit) : ''}</td>${withAway ? `<td style="color:var(--mute)">${r.away ? '🛵 sirf Takeaway/Delivery' : 'har order'}</td>` : ''}</tr>`; }).join('')}</table>`
       : '<small style="color:var(--mute)">Is ki recipe nahi hai.</small>';
   };
-  // Dough: har saman ki qeemat (aakhri "Saman aaya" ke rate se) + 1 batch, 1 kg aur har size ka kharcha
+  // Dough: har saman ki qeemat (aakhri "Naya saman daalein" ke rate se) + 1 batch, 1 kg aur har size ka kharcha
   preps.forEach(p => {
     let tot = 0; const miss = [];
     const rows = p.rows.map(r => { const it = byId[String(r.item_id)] || {}, sp = subOf(it), c = it.rate ? r.qty * it.rate : null; if (c === null) miss.push(it.name); else tot += c;
@@ -423,16 +421,16 @@ async function viewStock() {
   });
 
   liveFilter('qMv', () => [...$('#mvBox').querySelectorAll('tr')].filter(x => x.cells.length > 1), { textOf: x => x.textContent });
-  let stSearching = false;
-  view.querySelectorAll('details.sg').forEach(d => d.addEventListener('toggle', () => { if (!stSearching) window._open[d.dataset.g] = d.open; }));
-  // Search: jis group mein mila wo khud khul jaye, baaki chhup jayein. Mita dein to pehle jaisa
-  liveFilter('qSt', () => [...view.querySelectorAll('details.sg tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD'), { after: on => {
-    stSearching = true;
-    view.querySelectorAll('details.sg').forEach(d => {
+  // Groups ke dabbe: dabane se wo group dikhe. Search karein to saare groups mein se mile hue
+  view.querySelectorAll('[data-sg]').forEach(b => (b.onclick = () => { window._sg = b.dataset.sg; const q = $('#qSt'); if (q.value) { q.value = ''; window._q.qSt = ''; }
+    view.querySelectorAll('[data-sg]').forEach(x => x.classList.toggle('on', x === b)); view.querySelectorAll('.sgp').forEach(d => { d.hidden = d.dataset.g !== b.dataset.sg; }); stRun(); }));
+  const stRun = liveFilter('qSt', () => [...view.querySelectorAll('.sgp tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD'), { after: on => {
+    window._sg = window._sg || curG; const g = window._sg;
+    view.querySelectorAll('.sgp').forEach(d => {
       const any = [...d.querySelectorAll('tr')].some(x => x.cells[0] && x.cells[0].tagName === 'TD' && x.style.display !== 'none');
-      d.style.display = on && !any ? 'none' : ''; d.open = on ? any : !!window._open[d.dataset.g];
+      d.hidden = on ? !any : d.dataset.g !== g; d.querySelector('.sgh').style.display = on ? '' : 'none';
     });
-    setTimeout(() => { stSearching = false; }, 0);
+    view.querySelectorAll('[data-sg]').forEach(x => x.classList.toggle('on', !on && x.dataset.sg === g));
   } });
   // Demand slip: din badalte hi khud dobara banti hai; har line ki miqdar haath se badal sakte hain, hata sakte hain, nayi jor sakte hain
   let DM = null;
@@ -440,31 +438,33 @@ async function viewStock() {
   const dmUnit = r => (r.pack_size ? (r.pack_name || 'pack') : r.unit);
   const dmBuy = r => `${+(+r.n).toFixed(2)} ${dmUnit(r)}`;
   const dmCost = r => (r.rate ? r.n * (r.pack_size || 1) * r.rate : 0);
-  const dmAlertDays = 3;
-  const dmCls = r => (r.bal <= 0 || r.status === 'out' ? 'dm-red' : r.days_left !== null && r.days_left <= dmAlertDays ? 'dm-red' : r.manual ? '' : 'dm-yel');
+  // 0 = khatam, 1 = zaroori (alert ke din se kam bacha), 2 = kam zaroori, 3 = haath se jora
+  const URG = [['⛔ Khatam (sab se pehle)', '#ff8a80'], ['🔴 Zaroori (jaldi khatam hone wala)', '#ff8a80'], ['🟡 Kam zaroori', '#f5c04a'], ['✋ Haath se jore', 'var(--gold)']];
+  const dmU = r => (r.manual ? 3 : r.urg ?? 2);
+  const dmCls = r => ['dm-red', 'dm-red', 'dm-yel', ''][dmU(r)];
   function dmDraw() {
-    const d = DM, rows = d.rows.filter(r => !r.del), grps = [...new Set(rows.map(r => r.grp))];
+    const d = DM, rows = d.rows.filter(r => !r.del), grps = [0, 1, 2, 3].filter(u => rows.some(r => dmU(r) === u));
     const tot = rows.reduce((t, r) => t + dmCost(r), 0);
     const left = items.filter(i => !d.rows.some(r => r.id === i.id && !r.del));
     $('#dmBox').innerHTML = `<table style="margin-top:8px"><tr><th>Saman</th><th>Mangwana (badal sakte hain)</th><th>Bacha</th><th>Kitne din ka bacha</th><th>Roz ki khapat</th><th>Andazan Rs</th><th></th></tr>
-      ${grps.map(g => `<tr class="gh"><td colspan="7" style="color:var(--gold);font-weight:700;padding-top:10px">${esc(g)}</td></tr>` + rows.filter(r => r.grp === g).map(r => { const k = d.rows.indexOf(r);
-        return `<tr class="${dmCls(r)}"><td>${esc(r.name)}${r.manual ? ' <small style="color:var(--mute)">(haath se)</small>' : ''}</td>
+      ${grps.map(g => `<tr class="gh"><td colspan="7" style="color:${URG[g][1]};font-weight:800;padding-top:12px;font-size:16px">${URG[g][0]} <small style="color:var(--mute);font-weight:400">(${rows.filter(r => dmU(r) === g).length})</small></td></tr>` + rows.filter(r => dmU(r) === g).map(r => { const k = d.rows.indexOf(r);
+        return `<tr class="${dmCls(r)}"><td>${esc(r.name)} <small style="color:var(--mute)">${esc(r.grp)}</small></td>
         <td style="white-space:nowrap"><input class="n dmn" data-k="${k}" type="number" step="any" min="0" value="${+(+r.n).toFixed(2)}" style="max-width:90px"> ${esc(dmUnit(r))}${r.pack_size ? ` <small style="color:var(--mute)">= ${dmQ(r, r.n * r.pack_size)}</small>` : ''}</td>
         <td>${dmQ(r, r.bal)}</td><td>${r.bal <= 0 ? '<b style="color:#ff8a80">khatam</b>' : r.days_left === null ? '—' : '~' + r.days_left + ' din'}</td><td>${r.per_day ? dmQ(r, r.per_day) : '—'}</td>
         <td>${r.rate ? money(Math.round(dmCost(r))) + `<br><small style="color:var(--mute)">${money(Math.round(r.rate * (r.pack_size || 1)))}/${esc(dmUnit(r))}</small>` : '<span style="color:#f5c04a">rate?</span>'}</td>
         <td><button class="btn red s" data-dmdel="${k}">✕</button></td></tr>`; }).join('')).join('') || '<tr><td colspan="7" style="color:#8fd19e">✓ Is waqt kuch mangwane ki zarurat nahi.</td></tr>'}</table>
       <div class="r" style="margin-top:8px"><select id="dmAdd"><option value="">+ Aur saman jorein (list se)...</option>${left.map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('')}</select></div>
-      <div class="r" style="margin-top:8px"><div style="flex:1"><div style="font-size:13px;color:var(--mute)">${rows.length} cheezein · andazan cash (aakhri khareed ke rate se)</div><b style="font-size:26px;color:var(--gold)">${money(Math.round(tot))}</b>${(() => { const nr = rows.filter(r => !r.rate).length; return nr ? `<div style="color:#f5c04a;font-size:13px">⚠ ${nr} cheezon ka rate nahi (in ke paise is mein shamil nahi). "Saman aaya" mein Rs likhne se rate khud lag jata hai.</div>` : ''; })()}</div><button class="btn gold s" id="dmPrint">🖨 Slip print karein</button></div>
-      <small style="color:var(--mute)">Laal = khatam ya ${dmAlertDays} din se kam ka bacha. Peela = ${d.days} din ke andar khatam ho jayega. ${d.days} din ke liye, pichle ${d.based_on} din ki sale ke hisaab se.</small>`;
+      <div class="r" style="margin-top:8px"><div style="flex:1"><div style="font-size:13px;color:var(--mute)">${rows.length} cheezein · andazan cash (aakhri khareed ke rate se)</div><b style="font-size:26px;color:var(--gold)">${money(Math.round(tot))}</b>${(() => { const nr = rows.filter(r => !r.rate).length; return nr ? `<div style="color:#f5c04a;font-size:13px">⚠ ${nr} cheezon ka rate nahi (in ke paise is mein shamil nahi). "Naya saman daalein" mein Rs likhne se rate khud lag jata hai.</div>` : ''; })()}</div><button class="btn gold s" id="dmPrint">🖨 Slip print karein</button></div>
+      <small style="color:var(--mute)">Tarteeb: pehle khatam, phir zaroori (jitne din ka alert rakha hai us se kam bacha), phir kam zaroori (${d.days} din ke andar khatam ho jayega). ${d.days} din ke liye, pichle ${d.based_on} din ki sale ke hisaab se.</small>`;
     $('#dmSearch').hidden = rows.length < 6;
     liveFilter('qDm', () => [...$('#dmBox').querySelectorAll('tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD' && x.cells.length > 1 || x.classList.contains('gh')));
     $('#dmBox').querySelectorAll('.dmn').forEach(x => (x.onchange = () => { DM.rows[+x.dataset.k].n = Math.max(0, +x.value || 0); dmDraw(); }));
     $('#dmBox').querySelectorAll('[data-dmdel]').forEach(x => (x.onclick = () => { DM.rows[+x.dataset.dmdel].del = true; dmDraw(); }));
     $('#dmAdd').onchange = () => { const i = items.find(x => String(x.id) === $('#dmAdd').value); if (!i) return;
       DM.rows.push({ id: i.id, name: i.name, grp: i.grp || 'Dusra', unit: i.unit, sub_unit: i.sub_unit, sub_per: i.sub_per, pack_size: i.pack_size, pack_name: i.pack_name, bal: Math.max(0, i.bal), per_day: i.per_day, days_left: i.days, status: i.status, rate: i.rate || 0, n: 1, manual: true });
-      DM.rows.sort((a, b) => (a.grp === b.grp ? a.name.localeCompare(b.name) : a.grp === 'Raw saman' ? -1 : b.grp === 'Raw saman' ? 1 : a.grp.localeCompare(b.grp))); dmDraw(); };
+      dmDraw(); };
     $('#dmPrint').onclick = () => {
-      const pr = DM.rows.filter(r => !r.del && r.n > 0), pg = [...new Set(pr.map(r => r.grp))];
+      const pr = DM.rows.filter(r => !r.del && r.n > 0), pg = [0, 1, 2, 3].filter(u => pr.some(r => dmU(r) === u)), PT = ['KHATAM', 'ZAROORI', 'KAM ZAROORI', 'AUR'];
       const w = window.open('', '_blank', 'width=420,height=700');
       w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>Demand slip</title><style>
         @page{size:80mm auto;margin:0} body{font-family:'Segoe UI',Arial,sans-serif;width:72mm;margin:0 auto;padding:3mm 0;color:#000;font-size:13px}
@@ -473,7 +473,7 @@ async function viewStock() {
         .g{font-weight:700;padding-top:6px;text-decoration:underline} .tick{display:inline-block;width:11px;height:11px;border:1px solid #000;margin-right:4px;vertical-align:-1px}
       </style></head><body><h1>${esc(DM.shop || 'Pizza Town')}</h1><div class="c"><b>DEMAND SLIP</b></div>
         <div class="c">${DM.date} · ${DM.days} din ka saman</div><hr>
-        <table>${pg.map(g => `<tr><td colspan="2" class="g">${esc(g)}</td></tr>` + pr.filter(r => r.grp === g).map(r => `<tr><td><span class="tick"></span>${esc(r.name)}<br><small style="margin-left:15px">${dmBuy(r)}</small></td><td class="r">${r.rate ? Math.round(dmCost(r)).toLocaleString('en-PK') : 'rate?'}</td></tr>`).join('')).join('')}</table>
+        <table>${pg.map(g => `<tr><td colspan="2" class="g">${PT[g]}</td></tr>` + pr.filter(r => dmU(r) === g).map(r => `<tr><td><span class="tick"></span>${esc(r.name)}<br><small style="margin-left:15px">${dmBuy(r)}</small></td><td class="r">${r.rate ? Math.round(dmCost(r)).toLocaleString('en-PK') : 'rate?'}</td></tr>`).join('')).join('')}</table>
         <hr><div style="font-size:15px"><b>Andazan cash: Rs ${Math.round(pr.reduce((t, r) => t + dmCost(r), 0)).toLocaleString('en-PK')}</b></div><div>${pr.length} cheezein${pr.some(r => !r.rate) ? ` · ${pr.filter(r => !r.rate).length} ka rate nahi` : ''}</div>
         <div style="font-size:11px;margin-top:4px">Pichle ${DM.based_on} din ki sale ke hisaab se</div><br><br></body></html>`);
       w.document.close(); w.focus(); setTimeout(() => w.print(), 300);
@@ -506,14 +506,6 @@ async function viewStock() {
     await A('/stock/in', 'POST', { ...pickBody($('#iItem').value), packs: $('#iPacks').value, qty: $('#iQty').value, amount: $('#iAmt').value, date: $('#iDate').value });
     toast('Stock mein add ho gaya ✓'); viewStock();
   });
-  liveFilter('qBulk', () => [...$('#bulkT').querySelectorAll('tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD'));
-  view.querySelectorAll('.bulk').forEach(x => (x.oninput = () => { const it = byId[x.dataset.id]; x.nextElementSibling.textContent = x.value === '' ? '' : '= ' + qtyTxt(it, x.value); }));
-  $('#bSave').onclick = () => guard(async () => {
-    const rows = [...view.querySelectorAll('.bulk')].filter(x => x.value !== '').map(x => ({ item_id: x.dataset.id, count: x.value }));
-    if (!rows.length) throw new Error('Kisi item mein miqdar likhein');
-    const r = await A('/stock/count-bulk', 'POST', { rows }); toast(`${r.changed} items ka stock save ✓`); viewStock();
-  });
-  const rOpt = (v, withCat) => { const has = v.recipe.length || v.parts.length; return `<option value="${v.id}">${has ? '✓' : '○'} ${withCat ? esc(v.cat) + ' › ' : ''}${esc(v.name)}${v.label ? ' · ' + esc(v.label) : ''}${has ? '' : ' (Recipe nahi)'}</option>`; };
   $('#rGrp').onchange = () => { const g = $('#rGrp').value, sel = $('#rSel'); if (g && $('#qRc').value) { $('#qRc').value = ''; window._q.qRc = ''; $('#qRc').parentElement.querySelector('.sc').textContent = ''; } sel.disabled = !g; sel.innerHTML = g ? '<option value="">Item chunein...</option>' + rc.variants.filter(v => v.cat === g).map(v => rOpt(v)).join('') : '<option value="">Pehle group chunein</option>'; $('#rBox').innerHTML = ''; };
   // Recipe search: saare groups mein se milte items list mein; aik hi mile to seedha khul jaye
   const rFind = () => {
@@ -543,7 +535,7 @@ async function viewStock() {
           <div class="box" style="padding:10px"><small style="color:var(--mute)">Kul kharcha · Delivery</small><b style="font-size:20px">Rs ${c.deliv}</b><small>Bachat Rs ${c.price - c.deliv}</small></div>
           <div class="box" style="padding:10px"><small style="color:var(--mute)">Menu qeemat</small><b style="font-size:20px">Rs ${c.price}</b></div></div>
         <small style="color:var(--mute)">Note: Dine-in mein bottle wali ketchup lagti hai, us ka kharcha Takeaway jitne sachet ke barabar farz kiya gaya hai (Rs ${c.ketchup}). Delivery = Takeaway + rider ka kharcha Rs ${c.dcost} farz (Settings se badal sakte hain).</small>
-        ${c.missing.length ? `<small style="color:#f5c04a">⚠ In ka rate abhi nahi (kul kharcha pura nahi): ${c.missing.map(esc).join(', ')}. Rate "Saman aaya" mein Rs likhne se khud lag jata hai, ya upar table se "Rate?" dabayein.</small>` : ''}`
+        ${c.missing.length ? `<small style="color:#f5c04a">⚠ In ka rate abhi nahi (kul kharcha pura nahi): ${c.missing.map(esc).join(', ')}. Rate "Naya saman daalein" mein Rs likhne se khud lag jata hai, ya upar table se "Rate?" dabayein.</small>` : ''}`
         : '<small style="color:var(--mute)">Is ki recipe nahi hai.</small>';
     });
   };
@@ -551,7 +543,13 @@ async function viewStock() {
   view.onclick = e => guard(async () => {
     const b = e.target.closest('[data-act]'); if (!b) return;
     if (b.dataset.act === 'cnt') { countDialog(items.find(x => String(x.id) === b.dataset.id), viewStock); return; }
-    if (b.dataset.act === 'min') { const c = prompt(`${b.dataset.n}: kam-az-kam kitna hona chahiye? (${b.dataset.u} mein. Isse kam ho to alert aayega)`, b.dataset.m); if (c === null) return; await A('/stock/items/' + b.dataset.id, 'PUT', { min_level: c }); viewStock(); }
+    if (b.dataset.act === 'alert') {
+      const auto = b.dataset.auto, cur = b.dataset.a;
+      const c = prompt(`${b.dataset.n}: Alert kab aaye?\n\nAutomatic setting ${auto} din ki hai: jab ${b.dataset.n} sirf ${auto} din ka reh jaye to peela alert aata hai aur demand slip mein "zaroori" aata hai.\n\nIs item ke din kam ya zyada karne hain to likhein (maslan 5).\nKhali chhor kar OK = wapas automatic ${auto} din.`, cur);
+      if (c === null) return; const v = c.trim() === '' ? 0 : +c;
+      if (!(v >= 0) || v > 60) throw new Error('1 se 60 tak din likhein');
+      await A('/stock/items/' + b.dataset.id, 'PUT', { alert_days: v }); toast(v ? `Alert: ${v} din ✓` : `Alert: automatic ${auto} din ✓`); viewStock(); return;
+    }
     if (b.dataset.act === 'rate') {
       const per = +b.dataset.p ? b.dataset.pn : b.dataset.u, cur = Math.round(+b.dataset.r * (+b.dataset.p || 1));
       const c = prompt(`${b.dataset.n}: 1 ${per} kitne Rs ka aata hai?`, cur || ''); if (c === null || c === '') return;

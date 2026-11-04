@@ -92,7 +92,8 @@ addCol('stock_items', 'prep_yield', 'real default 0');   // 1 batch ka wazan (g)
 addCol('recipes', 'away', 'integer default 0');
 addCol('stock_items', 'rate', 'real default 0');
 addCol('stock_items', 'alert_state', "text default ''");  // aakhri dafa Sheet ko kya bataya (low/out)         // Rs per unit (kg/litre/piece), aakhri "Saman aaya" se          // 1 = sirf takeaway/delivery par (packing)
-addCol('order_items', 'pz', "text default ''");          // deal ke pizza flavour + topping
+addCol('order_items', 'pz', "text default ''");
+addCol('stock_items', 'alert_days', 'real default 0');    // 0 = automatic (Settings wale din, kam se kam 3); warna is item ke apne din          // deal ke pizza flavour + topping
 db.exec(`
 create table if not exists prep_recipes(prep_id integer not null, item_id integer not null, qty real not null, primary key(prep_id,item_id));
 create table if not exists deal_parts(id integer primary key, variant_id integer not null, part_vid integer not null, qty real not null default 1, slot text default '');
@@ -445,8 +446,10 @@ function stockList() {
     let status = 'ok';
     if (!known.has(i.id)) status = 'unset';
     else if (b <= 0) status = 'out';
-    else if ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= alertDays)) status = 'low';   // 3 din ya kam ka stock = peela
+    const aDays = i.alert_days > 0 ? i.alert_days : alertDays;   // is item ka alert: apne din ya automatic
+    if (status === 'ok' && ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= aDays))) status = 'low';   // itne din ya kam ka stock = peela
     return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status,
+      alert_days: aDays, alert_auto: !(i.alert_days > 0), auto_days: alertDays,
       sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0 };
   });
 }
@@ -947,7 +950,8 @@ admin.put('/stock/items/:id', (req, res) => {
   const b = req.body || {};
   if (b.min_level !== undefined) db.prepare('update stock_items set min_level=? where id=?').run(Math.max(0, num(b.min_level)), req.params.id);
   if (b.unit) db.prepare('update stock_items set unit=? where id=?').run(String(b.unit).slice(0, 12), req.params.id);
-  if (b.min_level !== undefined) setImmediate(stockAlertCheck);
+  if (b.alert_days !== undefined) db.prepare('update stock_items set alert_days=? where id=?').run(Math.min(60, Math.max(0, num(b.alert_days))), req.params.id);
+  if (b.min_level !== undefined || b.alert_days !== undefined) setImmediate(stockAlertCheck);
   if (b.rate !== undefined) db.prepare('update stock_items set rate=? where id=?').run(Math.max(0, num(b.rate)), req.params.id);
   if (b.pack_size !== undefined && String(b.confirm_pin || '') !== getSettings().admin_pin) return res.status(403).json({ error: 'Pack size badalne ke liye Admin PIN ghalat hai' });
   if (b.pack_size !== undefined) db.prepare('update stock_items set pack_size=?, pack_name=? where id=?').run(Math.max(0, num(b.pack_size)), String(b.pack_name || '').slice(0, 30), req.params.id);
@@ -1042,9 +1046,11 @@ function computeDemand(days) {
     const packs = i.pack_size > 0 ? Math.ceil(need / i.pack_size - 1e-9) : null;
     rows.push({ name: i.name, grp: i.grp || 'Dusra', unit: i.unit, sub_unit: i.sub_unit, sub_per: i.sub_per, bal: r2(bal), per_day: Math.round(perDay * 1000) / 1000,
       need: Math.round(need * 1000) / 1000, packs, pack_size: i.pack_size, pack_name: i.pack_name, buy: packs ? r2(packs * i.pack_size) : Math.round(need * 100) / 100,
-      cost: i.rate ? Math.round((packs ? packs * i.pack_size : need) * i.rate) : null, status: i.status, days_left: perDay > 0 ? Math.round(bal / perDay * 10) / 10 : null, id: i.id, rate: i.rate || 0 });
+      cost: i.rate ? Math.round((packs ? packs * i.pack_size : need) * i.rate) : null, status: i.status, days_left: perDay > 0 ? Math.round(bal / perDay * 10) / 10 : null, id: i.id, rate: i.rate || 0,
+      alert_days: i.alert_days, urg: bal <= 0 || i.status === 'out' ? 0 : i.status === 'low' ? 1 : 2 });   // 0 khatam, 1 zaroori, 2 kam zaroori
   });
-  rows.sort((a, b) => (a.grp === b.grp ? a.name.localeCompare(b.name) : a.grp === 'Raw saman' ? -1 : b.grp === 'Raw saman' ? 1 : a.grp.localeCompare(b.grp)));
+  // Tarteeb: pehle khatam, phir zaroori (alert ke din se kam), phir kam zaroori; har hisse mein jo pehle khatam ho wo upar
+  rows.sort((a, b) => a.urg - b.urg || (a.days_left ?? -1) - (b.days_left ?? -1) || a.name.localeCompare(b.name));
   return { days, based_on: nDays, date: bd, rows, total: rows.reduce((t, r) => t + (r.cost || 0), 0), no_rate: rows.filter(r => !r.rate).map(r => r.name), shop: getSettings().shop_name };
 }
 admin.get('/stock/demand', (req, res) => res.json(computeDemand(Math.min(30, Math.max(1, int(req.query.days, 3))))));
@@ -1155,7 +1161,7 @@ admin.get('/report', (req, res) => {
     gifts: db.prepare(`select coalesce(gift_by,'-') by_whom, count(*) n, sum(subtotal) value, sum(cost) cost from orders where ${W} and payment='Gift' group by gift_by`).all(...A),
     by_payment: db.prepare(`select payment, count(*) n, sum(total) total from orders where ${W} group by payment`).all(...A),
     riders: db.prepare(`select rider, count(*) n, sum(total) total, sum(delivery_charge) delivery from orders where ${W} and type='delivery' group by rider`).all(...A),
-    top: db.prepare(`select oi.item_name, oi.variant_label, sum(oi.qty) qty, sum(oi.qty*oi.price) amount, sum(oi.qty*(oi.price-oi.cost)) profit
+    top: db.prepare(`select oi.item_name, oi.variant_label, sum(oi.qty) qty, sum(oi.qty*oi.price) amount, sum(oi.qty*oi.cost) cost, sum(oi.qty*(oi.price-oi.cost)) profit
       from order_items oi join orders o on o.id=oi.order_id where o.business_date between ? and ? and o.status='done'
       group by oi.item_name, oi.variant_label order by qty desc`).all(...A),
     // Orders ki list: sirf aik business din (5 baje counter reset tak aik din). Default: is muddat ka aakhri din jis mein orders hon
