@@ -34,6 +34,7 @@ async function loadStock() {
   // Upar 2 button: laal = khatam, peela = kam (gin ke). Dabane par list popup mein
   const al = STOCK.alerts, out = al.filter(s => s.status === 'out'), low = al.filter(s => s.status !== 'out');
   [['#btnOut', out], ['#btnLow', low]].forEach(([id, l]) => { const b = $(id); if (!b) return; b.hidden = !l.length; b.querySelector('b').textContent = l.length; });
+  const ob = $('#btnOil'); if (ob) { ob.hidden = !STOCK.oil; if (STOCK.oil) ob.classList.toggle('due', STOCK.oil.remain <= 0); }
   if (typeof renderMenu === 'function' && menu && menu.length) renderMenu();
 }
 function stockConfirm(item, v, s, ok) {
@@ -63,6 +64,24 @@ $('#btnOut').onclick = () => stockPopup('out');
 // POS se Admin mein jayen to har dafa Admin PIN dobara poocha jaye (purana khula session band)
 document.addEventListener('click', e => { if (e.target.closest('.toAdmin')) try { sessionStorage.removeItem('pin'); } catch (x) {} }, true);
 $('#btnLow').onclick = () => stockPopup('low');
+// Fryer ka oil: badalne se 1 din pehle POS mein alert. "Badal diya" Admin PIN se (tab hi Oil stock se minus)
+$('#btnOil').onclick = () => {
+  const o = STOCK.oil; if (!o) return;
+  const due = o.remain <= 0, m = document.createElement('div'); m.className = 'modal on';
+  m.innerHTML = `<div class="sheet" style="max-width:440px"><h3 style="color:${due ? '#ff8a80' : '#f5c04a'}">🛢 Fryer ka oil ${due ? 'badalne ka waqt ho gaya' : 'kal tak badalna hai'}</h3>
+    <div style="font-size:16px;line-height:1.6">Abhi wala oil <b>${o.day}va din</b> se chal raha hai (badla tha ${esc(o.last)}), is baari <b>${o.fried}</b> fried cheezein bik chuki hain.<br>Andaza: badalna <b>~${esc(o.next)}</b>.</div>
+    <div style="color:var(--mute);font-size:13px">Oil badal dein to neeche dabayein. Admin PIN lagega aur ${o.litres} ${esc(o.unit)} Oil stock se minus ho jayega.</div>
+    ${o.bal < o.litres ? `<div style="color:#ffb4a8;font-size:14px">⚠ Stock mein abhi sirf ${+(+o.bal).toFixed(2)} ${esc(o.unit)} oil hai. Naya oil aaya hai to pehle Admin mein "Naya saman daalein" se daal dein.</div>` : ''}
+    <div class="two"><button class="btn" id="foNo">Band</button><button class="btn gold" id="foYes">✅ Oil badal diya</button></div></div>`;
+  document.body.appendChild(m);
+  const close = () => m.remove(); m.querySelector('#foNo').onclick = close; m.onclick = e => { if (e.target === m) close(); };
+  m.querySelector('#foYes').onclick = async () => {
+    const pin = prompt('Admin PIN'); if (!pin) return;
+    try { const r = await fetch('/api/admin/stock/oil-change', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-pin': pin }, body: JSON.stringify({ litres: o.litres }) });
+      const j = await r.json(); if (!r.ok) throw new Error(j.error || 'Masla'); close(); toast('Fryer ka oil badalna likh liya ✓'); loadStock();
+    } catch (e) { toast(e.message === 'Unauthorized' ? 'PIN ghalat' : e.message, 3500); }
+  };
+};
 async function load() {
   [menu, settings] = await Promise.all([api('/api/menu'), api('/api/settings')]);
   if (!menu.find(c => c.id === cur)) cur = menu.length ? menu[0].id : null;

@@ -197,3 +197,5 @@ a.btn{color:inherit}
 #oneBlock p{font-size:17px;line-height:1.6;color:#ddd}
 #oneBlock button{margin-top:14px;padding:12px 18px;border-radius:10px;border:1px solid #666;background:#2a2e37;color:#eee;font-size:15px;cursor:pointer}
 #oneBlock small{display:block;color:#999;margin-top:6px}
+
+.btn.stk.fry{background:#e8792b;border-color:#e8792b;color:#fff}.btn.stk.fry b{background:#fff;color:#e8792b}.btn.stk.fry.due{background:#c62828;border-color:#c62828}

@@ -387,7 +387,7 @@ async function viewStock() {
   const opt = items.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('');
   const cats = [...new Set(rc.variants.map(v => v.cat))];
   const grpOpts = ['Raw saman', 'Packing'].concat(cats).map(c => `<option>${esc(c)}</option>`).join('');
-  const GORD = ['Raw saman', 'Sabzi', 'Packing'];
+  const GORD = ['Raw saman', 'Packing'];
   const groups = [...new Set(GORD.concat(items.map(i => i.grp || 'Dusra')))].filter(g => items.some(i => (i.grp || 'Dusra') === g));
   const cnt = (g, st) => items.filter(i => (i.grp || 'Dusra') === g && i.status === st).length;
   const rateTxt = i => (i.rate ? `Rs ${Math.round(i.rate * (i.pack_size || 1))}/${i.pack_size ? (i.pack_name || 'pack') : i.unit}` : 'Rate?');
@@ -402,21 +402,13 @@ async function viewStock() {
     <small style="color:var(--mute)">Pichle 7 din ki asal sale se roz ki khapat nikal kar, jitne din chunein utna saman minus jo bacha hai. Pack mein gol kar ke.</small>
     <div id="dmSearch" hidden>${sBar('qDm', 'Demand mein item dhoondein')}</div>
     <div id="dmBox"></div></div>
-  ${(() => { const o = (items.find(i => i.oil) || {}).oil; if (!o) return ''; const due = o.remain <= 0, soon = o.remain <= 1;
-    return `<div class="box oilbox${due ? ' due' : soon ? ' soon' : ''}"><div class="r" style="align-items:center"><b style="color:var(--gold);flex:1">🛢 Fryer ka oil (${o.litres} litre)</b><button class="btn gold s" id="oilChg">🛢 Aaj oil badla</button></div>
-      <div class="oilg"><div><small>Abhi wala oil</small><b>${o.last ? o.day + 'va din' : '—'}</b><small>${o.last ? 'badla: ' + o.last : 'kabhi nahi likha'}</small></div>
-        <div><small>Is baari fried bikin</small><b>${o.fried}</b><small>roz ~${o.rate}</small></div>
-        <div><small>Andaza (pichli baariyon se)</small><b>~${o.avgD} din</b><small>ya ~${o.avgF} fried</small></div>
-        <div><small>Agla badalna</small><b style="color:${due ? '#ff8a80' : soon ? '#f5c04a' : '#8fe39b'}">${o.next || '—'}</b><small>${due ? 'aaj / waqt ho gaya' : soon ? 'kal tak (alert)' : '~' + o.remain + ' din baqi'}</small></div></div>
-      ${o.cycles.length ? `<details><summary style="cursor:pointer;color:var(--mute)">Pichli baariyan (${o.cycles.length})</summary><table><tr><th>Se</th><th>Tak</th><th>Din</th><th>Fried bikin</th></tr>${o.cycles.slice().reverse().map(c => `<tr><td>${c.from}</td><td>${c.to}</td><td>${c.days}</td><td>${c.fried}</td></tr>`).join('')}</table></details>` : ''}
-      <small style="color:var(--mute)">Jis din fryer ka saara oil badlein, "Aaj oil badla" dabayein. System har baari ke din aur fried ginti yaad rakh kar agla andaza khud behtar karta hai. Alert badalne se 1 din pehle aata hai aur demand mein ${o.litres} litre aa jata hai. Oil khareedein to "Naya saman daalein" mein Frying Oil litre mein daalein.</small></div>`; })()}
   <div class="box"><b style="color:var(--gold)">📦 Stock ki halat (kya kitna bacha hai)</b>
     ${sBar('qSt', 'Stock item dhoondein (maslan cheese, dabba, maida)')}
     <div class="sgtiles">${groups.map(g => `<button class="sgtile${g === curG ? ' on' : ''}" data-sg="${esc(g)}"><span>${esc(g)}</span><small>${items.filter(i => (i.grp || 'Dusra') === g).length} items</small><span class="chips">${cnt(g, 'out') ? `<span class="redc" title="Khatam">${cnt(g, 'out')} khatam</span>` : ''}${cnt(g, 'low') ? `<span class="redc yel" title="Kam">${cnt(g, 'low')} kam</span>` : ''}</span></button>`).join('')}</div>
     ${groups.map(g => `<div class="sgp" data-g="${esc(g)}"${g === curG ? '' : ' hidden'}><div class="sgh"><span>${esc(g)}</span><button class="btn s sgclose" data-sgx="1">▲ Band karein</button></div>
-    <div class="tw"><table class="stt"><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din ka</th><th>Halat</th><th>Ginti karein<br><small>asal kitna pada hai</small></th><th>Alert kab<br><small>kitne din reh jaye</small></th><th>Pack size<br><small>1 pack mein</small></th><th>Rate<br><small>1 pack ka</small></th></tr>` + items.filter(i => (i.grp || 'Dusra') === g).sort(stOrd).map(i => { const t = ST_TXT[i.status]; return `<tr class="st-${i.status}"><td>${esc(i.name)}</td><td><b>${qtyTxt(i, i.bal)}</b></td><td>${i.per_day ? fmtQ(i, i.per_day) : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
+    <div class="tw"><table class="stt"><tr><th>Item</th><th>Bacha</th><th>Roz ki khapat</th><th>Kitne din ka</th><th>Halat</th><th>Ginti karein<br><small>asal kitna pada hai</small></th><th>Alert kab<br><small>kitne din reh jaye</small></th><th>Pack size<br><small>1 pack mein</small></th><th>Rate<br><small>1 pack ka</small></th></tr>` + items.filter(i => (i.grp || 'Dusra') === g).sort(stOrd).map(i => { const t = ST_TXT[i.status]; return `<tr class="st-${i.status}"><td>${esc(i.name)}${i.oil && i.oil.last ? `<br><small class="oiln${i.oil.remain <= 1 ? ' due' : ''}">🛢 Fryer: ${i.oil.day}va din · badalna ~${i.oil.next}</small>` : ''}${i.daily_use ? `<br><small style="color:var(--mute)">🥬 roz ${qtyTxt(i, i.daily_use)} (demand mein khud)</small>` : ''}</td><td><b>${qtyTxt(i, i.bal)}</b></td><td>${i.per_day ? fmtQ(i, i.per_day) : '—'}</td><td>${i.days === null ? '—' : '~' + Math.floor(i.days) + ' din'}</td>
       <td><span style="background:${t[2]};color:${t[1]};border-radius:99px;padding:2px 10px;font-weight:700;font-size:13px;white-space:nowrap">${t[0]}</span></td>
-      <td><button class="btn s cb" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}" data-u="${i.unit}">Ginti</button></td>
+      <td><button class="btn s cb" data-act="cnt" data-id="${i.id}" data-n="${esc(i.name)}" data-b="${i.bal}" data-u="${i.unit}">Ginti</button>${i.oil ? `<button class="btn s cb gold" data-act="fry" data-u="${i.unit}" data-l="${i.oil.litres}" style="margin-top:6px">🛢 Fryer badla</button>` : ''}</td>
       <td><button class="btn s cb" data-act="alert" data-id="${i.id}" data-n="${esc(i.name)}" data-a="${i.alert_auto ? '' : i.alert_days}" data-auto="${i.auto_days}">${i.alert_days} din${i.alert_auto ? ' <small>(auto)</small>' : ''}</button></td>
       <td><button class="btn s cb" data-act="pack" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || ''}" data-pn="${esc(i.pack_name || '')}">${esc(packTxt(i))}</button></td>
       <td><button class="btn s cb" data-act="rate" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || 0}" data-pn="${esc(i.pack_name || 'pack')}" data-r="${i.rate || 0}">${esc(rateTxt(i))}</button></td></tr>`; }).join('') + '</table></div><div class="sgfoot"><button class="btn s" data-sgx="1">▲ Band karein</button></div></div>').join('') || '<div style="color:var(--mute)">Abhi koi item nahi.</div>'}
@@ -500,7 +492,7 @@ async function viewStock() {
       ${grps.map(g => `<tr class="gh"><td colspan="7" style="color:${URG[g][1]};font-weight:800;padding-top:12px;font-size:16px">${URG[g][0]} <small style="color:var(--mute);font-weight:400">(${rows.filter(r => dmU(r) === g).length})</small></td></tr>` + rows.filter(r => dmU(r) === g).map(r => { const k = d.rows.indexOf(r);
         return `<tr class="${dmCls(r)}"><td>${esc(r.name)} <small style="color:var(--mute)">${esc(r.grp)}</small>${r.oil_note ? `<br><small style="color:#f5c04a">🛢 ${esc(r.oil_note)}</small>` : ''}</td>
         <td style="white-space:nowrap"><input class="n dmn" data-k="${k}" type="number" step="any" min="0" value="${+(+r.n).toFixed(2)}" style="max-width:90px"> ${esc(dmUnit(r))}${r.pack_size ? ` <small style="color:var(--mute)">= ${dmQ(r, r.n * r.pack_size)}</small>` : ''}</td>
-        <td>${dmQ(r, r.bal)}</td><td>${r.oil_note ? '~' + r.days_left + ' din mein badalna' : r.bal <= 0 ? '<b style="color:#ff8a80">khatam</b>' : r.days_left === null ? '—' : '~' + r.days_left + ' din'}</td><td>${r.per_day ? dmQ(r, r.per_day) : '—'}</td>
+        <td>${dmQ(r, r.bal)}</td><td>${r.daily ? '<span style="color:var(--mute)">roz aati hai</span>' : r.bal <= 0 ? '<b style="color:#ff8a80">khatam</b>' : r.days_left === null ? '—' : '~' + r.days_left + ' din'}</td><td>${r.per_day ? dmQ(r, r.per_day) : '—'}</td>
         <td>${r.rate ? money(Math.round(dmCost(r))) + `<br><small style="color:var(--mute)">${money(Math.round(r.rate * (r.pack_size || 1)))}/${esc(dmUnit(r))}</small>` : '<span style="color:#f5c04a">rate?</span>'}</td>
         <td><button class="btn red s" data-dmdel="${k}">✕</button></td></tr>`; }).join('')).join('') || '<tr><td colspan="7" style="color:#8fd19e">✓ Is waqt kuch mangwane ki zarurat nahi.</td></tr>'}</table>
       <div class="r" style="margin-top:8px"><select id="dmAdd"><option value="">+ Aur saman jorein (list se)...</option>${left.map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('')}</select></div>
@@ -535,11 +527,6 @@ async function viewStock() {
     DM = d; dmDraw(); $('#dmClose').hidden = false;
   });
   $('#dmGo').onclick = dmLoad;
-  if ($('#oilChg')) $('#oilChg').onclick = () => guard(async () => {
-    const d = prompt('Fryer ka saara oil kis din badla? (aaj ho to OK dabayein)', new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10)); if (d === null) return;
-    const l = prompt('Kitne litre naya oil dala?', '16'); if (l === null) return;
-    await A('/stock/oil-change', 'POST', { date: d, litres: +l || 16 }); toast('Oil badalna likh liya ✓ Nayi baari shuru'); viewStock();
-  });
   $('#dmClose').onclick = () => { DM = null; $('#dmBox').innerHTML = ''; $('#dmSearch').hidden = true; $('#dmClose').hidden = true; window._q.qDm = ''; $('#qDm').value = ''; };
   $('#dmDays').onchange = () => { if (DM) dmLoad(); };   // din badalte hi list khud nayi
   const iHint = () => { const it = byId[$('#iItem').value], n = +$('#iPacks').value, q = +$('#iQty').value;
@@ -553,8 +540,9 @@ async function viewStock() {
     else if (on && $('#iItem').value && !vis.some(o => o.value === $('#iItem').value)) { $('#iItem').value = ''; iHint(); }
   } });
   // Pack likhte hi kul miqdar khud bhare (pack size ke hisaab se); kul miqdar haath se badlein to pack khali
-  const fillQty = () => { const it = byId[$('#iItem').value], n = +$('#iPacks').value; if (it && it.pack_size && n > 0) $('#iQty').value = +(n * it.pack_size).toFixed(3); else if (!$('#iPacks').value) $('#iQty').value = ''; };
-  $('#iItem').onchange = () => { fillQty(); iHint(); }; $('#iPacks').oninput = () => { fillQty(); iHint(); }; $('#iQty').oninput = () => { $('#iPacks').value = ''; iHint(); };
+  const fillQty = () => { const it = byId[$('#iItem').value];
+    const n = +$('#iPacks').value; if (it && it.pack_size && n > 0) $('#iQty').value = +(n * it.pack_size).toFixed(3); else if (!$('#iPacks').value) $('#iQty').value = ''; };
+  $('#iItem').onchange = () => { $('#iPacks').value = ''; $('#iQty').value = ''; fillQty(); iHint(); }; $('#iPacks').oninput = () => { fillQty(); iHint(); }; $('#iQty').oninput = () => { $('#iPacks').value = ''; iHint(); };
   if ($('#dGo')) $('#dGo').onclick = () => guard(async () => {
     const id = $('#dItem').value; if (!id) throw new Error('Pehle item chunein');
     const it = items.find(x => String(x.id) === id);
@@ -650,6 +638,11 @@ async function viewStock() {
   view.onclick = e => guard(async () => {
     const b = e.target.closest('[data-act]'); if (!b) return;
     if (b.dataset.act === 'cnt') { countDialog(items.find(x => String(x.id) === b.dataset.id), viewStock); return; }
+    if (b.dataset.act === 'fry') {
+      const d = prompt('Fryer ka saara oil kis din badla? (aaj ho to OK)', new Date(Date.now() - 5 * 3600e3).toISOString().slice(0, 10)); if (d === null) return;
+      const l = prompt(`Kitna oil dala? (${b.dataset.u}) — itna Oil stock se minus hoga`, b.dataset.l); if (l === null) return;
+      await A('/stock/oil-change', 'POST', { date: d, litres: +l || 16 }); toast('Fryer ka oil badalna likh liya ✓ Nayi baari shuru'); viewStock(); return;
+    }
     if (b.dataset.act === 'alert') {
       const auto = b.dataset.auto, cur = b.dataset.a;
       const c = prompt(`${b.dataset.n}: Alert kab aaye?\n\nAutomatic setting ${auto} din ki hai: jab ${b.dataset.n} sirf ${auto} din ka reh jaye to peela alert aata hai aur demand slip mein "zaroori" aata hai.\n\nIs item ke din kam ya zyada karne hain to likhein (maslan 5).\nKhali chhor kar OK = wapas automatic ${auto} din.`, cur);
