@@ -93,6 +93,7 @@ addCol('recipes', 'away', 'integer default 0');
 addCol('stock_items', 'rate', 'real default 0');
 addCol('stock_items', 'alert_state', "text default ''");  // aakhri dafa Sheet ko kya bataya (low/out)         // Rs per unit (kg/litre/piece), aakhri "Saman aaya" se          // 1 = sirf takeaway/delivery par (packing)
 addCol('order_items', 'pz', "text default ''");
+addCol('expenses', 'batch', "text default ''");          // ikattha kharcha: kai din par baanta hua, aik hi batch
 addCol('stock_items', 'alert_days', 'real default 0');    // 0 = automatic (Settings wale din, kam se kam 3); warna is item ke apne din          // deal ke pizza flavour + topping
 db.exec(`
 create table if not exists prep_recipes(prep_id integer not null, item_id integer not null, qty real not null, primary key(prep_id,item_id));
@@ -1108,29 +1109,42 @@ admin.get('/recipe-cost/:vid', (req, res) => {
 // ----- expenses -----
 admin.get('/expenses', (req, res) => {
   const from = req.query.from || businessDate(), to = req.query.to || from;
-  res.json(db.prepare('select id,date,category,note,amount,created_at from expenses where deleted=0 and date between ? and ? order by date desc,id desc').all(from, to));
+  res.json(db.prepare('select id,date,category,note,amount,created_at,batch from expenses where deleted=0 and date between ? and ? order by date desc,id desc').all(from, to));
 });
 admin.post('/expenses', (req, res) => {
   const b = req.body || {};
   const amount = int(b.amount);
   if (amount <= 0) return res.status(400).json({ error: 'Amount likhein' });
   const date = /^\d{4}-\d{2}-\d{2}$/.test(b.date || '') ? b.date : businessDate();
-  const uidv = uuid(), now = fmtDT(new Date()), category = String(b.category || 'Other').slice(0, 40), note = String(b.note || '').slice(0, 200);
-  const sync = syncOn();
-  const id = db.prepare('insert into expenses(uid,date,category,note,amount,queued,created_at) values(?,?,?,?,?,?,?)')
-    .run(uidv, date, category, note, amount, sync ? 1 : 0, now).lastInsertRowid;
-  if (sync) enqueue('expenses', uidv, [uidv, date, category, note, amount, now]);
-  logEvent('expense', `${date} ${category}: Rs ${amount}${note ? ' (' + note + ')' : ''}`);
+  const now = fmtDT(new Date()), category = String(b.category || 'Other').slice(0, 40), note = String(b.note || '').slice(0, 200);
+  const sync = syncOn(), days = Math.min(30, Math.max(1, int(b.days, 1)));
+  // Ikattha kharcha: kul raqam chuni date se aage itne din par barabar baant di jati hai (har din ka profit theek rahe)
+  const batch = days > 1 ? uuid() : '', each = Math.floor(amount / days), extra = amount - each * days;
+  const ins = db.prepare('insert into expenses(uid,date,category,note,amount,queued,created_at,batch) values(?,?,?,?,?,?,?,?)');
+  let id = 0;
+  db.transaction(() => { for (let k = 0; k < days; k++) {
+    const d = new Date(date + 'T12:00:00'); d.setDate(d.getDate() + k);
+    const dt = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const amt = each + (k === 0 ? extra : 0), nt = days > 1 ? `${note ? note + ' · ' : ''}${days} din ka ${amount} (${k + 1}/${days})`.slice(0, 200) : note, uidv = uuid();
+    const r = ins.run(uidv, dt, category, nt, amt, sync ? 1 : 0, now, batch).lastInsertRowid; if (!id) id = r;
+    if (sync) enqueue('expenses', uidv, [uidv, dt, category, nt, amt, now]);
+  } })();
+  logEvent('expense', `${date} ${category}: Rs ${amount}${days > 1 ? ` (${days} din par baanta)` : ''}${note ? ' (' + note + ')' : ''}`);
   syncSoon();
-  res.json({ id });
+  res.json({ id, days });
 });
 admin.delete('/expenses/:id', (req, res) => {
-  const e = db.prepare('select * from expenses where id=? and deleted=0').get(req.params.id);
-  if (!e) return res.json({ ok: true });
-  db.prepare('update expenses set deleted=1 where id=?').run(e.id);
-  db.prepare('delete from stock_moves where expense_id=?').run(e.id);
-  if (e.queued) enqueue('expenses', e.uid + ':X', [e.uid + ':X', e.date, e.category, (e.note || '') + ' (deleted)', -e.amount, fmtDT(new Date())]);
-  logEvent('expense', `Kharcha delete: ${e.date} ${e.category} Rs ${e.amount}`);
+  const e0 = db.prepare('select * from expenses where id=? and deleted=0').get(req.params.id);
+  if (!e0) return res.json({ ok: true });
+  // Ikattha kharcha ho to us ke saare din aik saath hatte hain
+  const list = e0.batch ? db.prepare('select * from expenses where batch=? and deleted=0').all(e0.batch) : [e0];
+  list.forEach(e => {
+    db.prepare('update expenses set deleted=1 where id=?').run(e.id);
+    db.prepare('delete from stock_moves where expense_id=?').run(e.id);
+    if (e.queued) enqueue('expenses', e.uid + ':X', [e.uid + ':X', e.date, e.category, (e.note || '') + ' (deleted)', -e.amount, fmtDT(new Date())]);
+  });
+  const e = e0;
+  logEvent('expense', `Kharcha delete: ${e.date} ${e.category} Rs ${list.reduce((t, x) => t + x.amount, 0)}${list.length > 1 ? ` (${list.length} din)` : ''}`);
   syncSoon();
   res.json({ ok: true });
 });
