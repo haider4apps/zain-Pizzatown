@@ -890,6 +890,7 @@ app.post('/api/orders/:id/reprint', (req, res) => {
 const admin = express.Router();
 admin.use((req, res, next) => {
   if (req.get('x-admin-pin') !== getSettings().admin_pin) return res.status(401).json({ error: 'PIN ghalat hai' });
+  if (req.method !== 'GET' && /^\/(categories|items|variants)/.test(req.path)) res.on('finish', () => autoLinkResale());   // menu badla to naye drink/glass ka stock
   next();
 });
 admin.get('/login', (req, res) => res.json({ ok: true }));
@@ -1157,6 +1158,44 @@ admin.get('/recipes', (req, res) => {
   res.json({ variants: vs.map(v => ({ ...v, recipe: rec.filter(r => r.v === v.id).map(r => ({ item_id: r.i, qty: r.q, away: r.a })),
     parts: parts.filter(p => p.v === v.id).map(p => (p.slot ? `${p.slot} Pizza (shuru: ${p.name})` : `${p.qty} × ${p.name}${p.label ? ' ' + p.label : ''}`)) })) });
 });
+// Khareed kar bechne wali cheezein (cold drink, pani, disposable glass, juice...): menu mein naya item/size aaye to
+// us ka stock item khud ban jata hai aur 1 bika = 1 piece minus. Saman aaya, alert, demand aur lagat sab is se chalte hain.
+const RESALE_RX = /drink|water|pani|glass|disposi|bottle|juice|\bcan\b|soda|pepsi|coke|sprite|sting|mineral|cup/i;
+// size/naam badla (maslan khaali size ka naam baad mein "2'15 liter" rakha) to us ka stock item bhi naya naam le
+const resaleName = (name, label) => (name + (label ? ' ' + label : '')).replace(/\s+/g, ' ').trim().slice(0, 60);
+const resaleKey = n => String(n).toLowerCase().replace(/\b(litres?|liters?|ltrs?|lt)\b/g, 'l').replace(/(\d)\s*l\b/g, '$1l').replace(/[^a-z0-9]/g, '');
+function syncResaleNames() {
+  db.prepare(`select s.id sid,s.name sname,v.label,i.name,c.name cat from stock_items s join recipes r on r.item_id=s.id join variants v on v.id=r.variant_id
+      join items i on i.id=v.item_id join categories c on c.id=i.category_id
+    where s.active=1 and v.deleted=0 and r.qty=1 and (select count(*) from recipes x where x.item_id=s.id)=1 and (select count(*) from recipes y where y.variant_id=v.id)=1`).all()
+    .filter(r => RESALE_RX.test(r.cat) || RESALE_RX.test(r.name)).forEach(r => {
+      const nm = resaleName(r.name, r.label);
+      if (nm === r.sname || db.prepare('select 1 from stock_items where active=1 and lower(name)=lower(?) and id!=?').get(nm, r.sid)) return;
+      db.prepare('update stock_items set name=? where id=?').run(nm, r.sid);
+      logEvent('stock', `Stock item ka naam: ${r.sname} -> ${nm}`);
+    });
+}
+function autoLinkResale() {
+  try {
+    const vs = db.prepare(`select v.id,v.label,i.name,c.name cat from variants v join items i on i.id=v.item_id join categories c on c.id=i.category_id
+      where v.deleted=0 and i.deleted=0 and c.deleted=0
+        and not exists(select 1 from recipes r where r.variant_id=v.id) and not exists(select 1 from deal_parts d where d.variant_id=v.id)`).all()
+      .filter(v => RESALE_RX.test(v.cat) || RESALE_RX.test(v.name));
+    syncResaleNames();
+    if (!vs.length) return 0;
+    const now = fmtDT(new Date()), made = [];
+    db.transaction(() => vs.forEach(v => {
+      const nm = resaleName(v.name, v.label);
+      // purana stock item (thore farq wala naam bhi: "1.5 litre" = "1.5 Ltr", "2'15" = "2.15") ho to wohi, us ki miqdar aur pack size samet
+      const key = resaleKey(nm);
+      let it = db.prepare('select id,name from stock_items where active=1').all().find(x => resaleKey(x.name) === key);
+      if (!it) { it = { id: db.prepare("insert into stock_items(name,unit,grp,created_at) values(?,'piece',?,?)").run(nm, v.cat, now).lastInsertRowid }; made.push(nm); }
+      db.prepare('insert into recipes(variant_id,item_id,qty) values(?,?,1)').run(v.id, it.id);
+    }))();
+    if (made.length) logEvent('stock', `Naye stock items (menu se khud): ${made.join(', ')}`);
+    return vs.length;
+  } catch (e) { console.error('autoLinkResale:', e.message); return 0; }
+}
 // Menu ki category se stock items + recipe (1 sale = 1 piece) ek click mein bana do (cold drinks wagera ke liye)
 admin.post('/stock/from-menu', (req, res) => {
   const c = db.prepare('select * from categories where id=?').get((req.body || {}).category_id);
@@ -1173,9 +1212,10 @@ admin.post('/stock/from-menu', (req, res) => {
 });
 // Demand slip: pichle 7 din ki asal sale (orders + recipes) se roz ki khapat, N din ka saman - bacha hua = mangwana (pack mein)
 function computeDemand(days) {
-  const bd = businessDate(), U = dailyUsage(), nDays = U.days, rows = [];
+  const bd = businessDate(), U = dailyUsage(), nDays = U.days, rows = [], unset = [];
   stockList().forEach(i => {
     const perDay = U.map[i.id] || 0, bal = Math.max(0, i.bal);
+    if (i.status === 'unset' && !(i.daily_use > 0)) { if (perDay > 0) unset.push(i.name); return; }   // ginti hi nahi hui: andaza ghalat hoga, pehle ginti
     let need = perDay * days - bal;
     if (i.oil && i.oil.remain <= days) need += i.oil.litres;   // fryer badalna in dinon mein: 16 aur chahiye
     if (i.daily_use > 0) need = i.daily_use;   // sabzi: roz aati hai, hamesha aik din ki tay miqdar
@@ -1191,7 +1231,7 @@ function computeDemand(days) {
   });
   // Tarteeb: pehle khatam, phir zaroori (alert ke din se kam), phir kam zaroori; har hisse mein jo pehle khatam ho wo upar
   rows.sort((a, b) => a.urg - b.urg || (a.days_left ?? -1) - (b.days_left ?? -1) || a.name.localeCompare(b.name));
-  return { days, based_on: nDays, date: bd, rows, total: rows.reduce((t, r) => t + (r.cost || 0), 0), no_rate: rows.filter(r => !r.rate).map(r => r.name), shop: getSettings().shop_name };
+  return { days, based_on: nDays, date: bd, rows, total: rows.reduce((t, r) => t + (r.cost || 0), 0), no_rate: rows.filter(r => !r.rate).map(r => r.name), unset, shop: getSettings().shop_name };
 }
 admin.get('/stock/demand', (req, res) => res.json(computeDemand(Math.min(30, Math.max(1, int(req.query.days, 3))))));
 // Google Sheet ke liye khulasa (Events mein kind 'demand'): 3 din ke saman ka cash + kam/khatam saman kitne din ka
@@ -1677,6 +1717,7 @@ sabziDaily(); setInterval(sabziDaily, 10 * 60 * 1000);
 
 // Windows: desktop par "Pizza Town" icon na ho to bana do (tray se chalne wale PCs ke liye)
 if (process.platform === 'win32') setTimeout(() => { try { execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'make-icon.ps1')], { windowsHide: true, timeout: 30000 }, () => {}); } catch (e) {} }, 5000);
+autoLinkResale();
 const server = app.listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
   console.log(`Pizza Town POS v${PKG.version} chal gaya.`);

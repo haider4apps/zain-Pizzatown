@@ -414,12 +414,12 @@ async function viewStock() {
       <td><button class="btn s cb" data-act="rate" data-id="${i.id}" data-n="${esc(i.name)}" data-u="${i.unit}" data-p="${i.pack_size || 0}" data-pn="${esc(i.pack_name || 'pack')}" data-r="${i.rate || 0}">${esc(rateTxt(i))}</button></td></tr>`; }).join('') + '</table></div><div class="sgfoot"><button class="btn s" data-sgx="1">▲ Band karein</button></div></div>').join('') || '<div style="color:var(--mute)">Abhi koi item nahi.</div>'}
     <small style="color:var(--mute)">"Kitne din ka" pichle 7 din ki sale se nikalta hai. "Ginti" = asal bacha hua likhein, farq khud theek ho jata hai. "Alert kab" = jab stock itne din ka reh jaye to peela alert (automatic ${(items[0] || {}).auto_days || 3} din). Dabba, food bag aur ketchup sirf Takeaway/Delivery par minus hote hain.</small></div>
   <div class="box"><b style="color:var(--gold)">➕ Naya saman daalein</b>
-    ${sBar('qIn', 'Kya aaya? Naam likhein, list chhoti ho jayegi')}
+    ${sBar('qIn', 'Kya aaya? Naam likhna shuru karein, list khud khul jayegi')}
     <div class="r"><select id="iItem"><option value="">Kya aaya? (chunein)</option>${(() => {
       const st = { out: '⛔ khatam', low: '⚠ kam' }, short = items.filter(i => i.status === 'out' || i.status === 'low').sort((a, b) => (a.status === 'out' ? 0 : 1) - (b.status === 'out' ? 0 : 1) || a.name.localeCompare(b.name));
       const o = i => `<option value="${i.id}">${esc(i.name)} (${i.unit})${st[i.status] ? ' · ' + st[i.status] : ''}</option>`;
       return (short.length ? `<optgroup label="⚠ Pehle ye: kam / khatam (${short.length})">${short.map(o).join('')}</optgroup>` : '')
-        + GORD.map(g => `<optgroup label="${esc(g)}">${items.filter(i => (i.grp || 'Dusra') === g && !st[i.status]).map(o).join('')}</optgroup>`).join('');
+        + groups.map(g => `<optgroup label="${esc(g)}">${items.filter(i => (i.grp || 'Dusra') === g && !st[i.status]).map(o).join('')}</optgroup>`).join('');
     })()}</select><input id="iPacks" type="number" step="any" min="0" placeholder="Kitne pack"><input id="iQty" type="number" step="any" min="0" placeholder="ya kul miqdar"><input id="iAmt" type="number" min="0" placeholder="Kitne Rs (zaroori)"><input id="iDate" type="date" value="${new Date().toISOString().slice(0, 10)}"><button class="btn gold s" id="iAdd">+ List mein jorein</button></div>
     <small style="color:var(--mute)" id="iHint">Pack size set ho to sirf "Kitne pack" likhein (maslan 3), kg khud ban jayenge. Rs likhna zaroori hai. Har saman "+ List mein jorein" se neeche list mein judta jayega; aakhir mein aik dafa Save.</small>
     <div id="inDraft"></div></div>
@@ -497,7 +497,7 @@ async function viewStock() {
         <td><button class="btn red s" data-dmdel="${k}">✕</button></td></tr>`; }).join('')).join('') || '<tr><td colspan="7" style="color:#8fd19e">✓ Is waqt kuch mangwane ki zarurat nahi.</td></tr>'}</table>
       <div class="r" style="margin-top:8px"><select id="dmAdd"><option value="">+ Aur saman jorein (list se)...</option>${left.map(i => `<option value="${i.id}">${esc(i.name)}</option>`).join('')}</select></div>
       <div class="r" style="margin-top:8px"><div style="flex:1"><div style="font-size:13px;color:var(--mute)">${rows.length} cheezein · andazan cash (aakhri khareed ke rate se)</div><b style="font-size:26px;color:var(--gold)">${money(Math.round(tot))}</b>${(() => { const nr = rows.filter(r => !r.rate).length; return nr ? `<div style="color:#f5c04a;font-size:13px">⚠ ${nr} cheezon ka rate nahi (in ke paise is mein shamil nahi). "Naya saman daalein" mein Rs likhne se rate khud lag jata hai.</div>` : ''; })()}</div><button class="btn gold s" id="dmPrint">🖨 Slip print karein</button></div>
-      <small style="color:var(--mute)">Tarteeb: 🔴 khatam, phir 🟡 kam (jitne din ka alert rakha hai us se kam bacha), phir 🟢 theek (${d.days} din ke andar khatam hoga). 🥬 Roz ki sabzi hamesha aik saath. ${d.days} din ke liye, pichle ${d.based_on} din ki sale ke hisaab se.</small>`;
+      <small style="color:var(--mute)">Tarteeb: 🔴 khatam, phir 🟡 kam (jitne din ka alert rakha hai us se kam bacha), phir 🟢 theek (${d.days} din ke andar khatam hoga). 🥬 Roz ki sabzi hamesha aik saath. ${d.days} din ke liye, pichle ${d.based_on} din ki sale ke hisaab se.</small>${d.unset && d.unset.length ? `<div style="margin-top:6px;color:var(--gold);font-size:13px">⚠ In ki ginti abhi nahi hui, is liye demand mein nahi (Stock ki halat mein "Ginti" karein): ${d.unset.map(esc).join(', ')}</div>` : ''}`;
     $('#dmSearch').hidden = rows.length < 6;
     liveFilter('qDm', () => [...$('#dmBox').querySelectorAll('tr')].filter(x => x.cells[0] && x.cells[0].tagName === 'TD' && x.cells.length > 1 || x.classList.contains('gh')));
     $('#dmBox').querySelectorAll('.dmn').forEach(x => (x.onchange = () => { DM.rows[+x.dataset.k].n = Math.max(0, +x.value || 0); dmDraw(); }));
@@ -538,7 +538,30 @@ async function viewStock() {
     const vis = [...$('#iItem').options].filter(o => o.value && o.style.display !== 'none');
     if (on && vis.length === 1 && $('#iItem').value !== vis[0].value) { $('#iItem').value = vis[0].value; iHint(); }
     else if (on && $('#iItem').value && !vis.some(o => o.value === $('#iItem').value)) { $('#iItem').value = ''; iHint(); }
+    showSug(on ? vis : []);
   } });
+  // Type karte hi wohi "Kya aaya?" dropdown khud khula (lambi list ki shakal mein) dikhe; click / Enter se chunein, phir band
+  function sel() { return $('#iItem'); }
+  function closeSel() { sel().size = 0; sel().classList.remove('open'); sel().options[0].hidden = false; }
+  function showSug(vis) {
+    if (document.activeElement !== $('#qIn') && document.activeElement !== sel()) return closeSel();
+    if (!$('#qIn').value.trim() || !vis.length) return closeSel();
+    const groups = [...sel().querySelectorAll('optgroup')].filter(g => !g.hidden).length;
+    sel().options[0].hidden = true; sel().size = Math.max(2, Math.min(12, vis.length + groups)); sel().classList.add('open');
+  }
+  const pickSel = () => { if (!sel().value) return; closeSel(); $('#iPacks').value = ''; $('#iQty').value = ''; fillQty(); iHint();
+    (!$('#iPacks').hidden ? $('#iPacks') : $('#iQty')).focus(); };
+  sel().addEventListener('click', e => { if (sel().size > 1 && e.target.tagName === 'OPTION') pickSel(); });
+  sel().addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); pickSel(); } else if (e.key === 'Escape') closeSel(); });
+  $('#qIn').addEventListener('keydown', e => {
+    if (sel().size <= 1) return;
+    const vis = [...sel().options].filter(o => o.value && o.style.display !== 'none');
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!sel().value && vis[0]) sel().value = vis[0].value; sel().focus(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (!sel().value && vis[0]) sel().value = vis[0].value; pickSel(); }
+    else if (e.key === 'Escape') closeSel();
+  });
+  $('#qIn').addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== sel()) closeSel(); }, 200));
+  sel().addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== $('#qIn')) closeSel(); }, 200));
   // Pack likhte hi kul miqdar khud bhare (pack size ke hisaab se); kul miqdar haath se badlein to pack khali
   const fillQty = () => { const it = byId[$('#iItem').value];
     const n = +$('#iPacks').value; if (it && it.pack_size && n > 0) $('#iQty').value = +(n * it.pack_size).toFixed(3); else if (!$('#iPacks').value) $('#iQty').value = ''; };
