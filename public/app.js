@@ -470,14 +470,19 @@ async function updSync() {
 }
 setInterval(updSync, 15000); updSync();
 function updStation() { const b = $('#btnStation'); b.textContent = 'Printer: ' + (isStation() ? 'ON' : 'OFF'); b.classList.toggle('stn', isStation()); }
+// Slip ka frame pehle se tayyar (page + Urdu font aik dafa load). Har order par sirf order ka number bheja jata hai
+let slipReady = false;
+window.addEventListener('message', e => { if (e.data && e.data.slipReady) slipReady = true; });
+function warmSlip() { if (!isStation()) return; slipReady = false; $('#printFrame').src = '/slip.html?warm=1&t=' + Date.now(); }
 function printOne(id) {
   return new Promise(resolve => {
-    const f = $('#printFrame'); let done = false;
-    const fin = () => { if (done) return; done = true; window.removeEventListener('message', on); resolve(); };
-    const on = e => { if (e.data && e.data.slipDone == id) fin(); };
+    const f = $('#printFrame'); let done = false, info = {};
+    const fin = () => { if (done) return; done = true; window.removeEventListener('message', on); resolve(info); };
+    const on = e => { if (e.data && e.data.slipDone == id) { info = { load: e.data.load, print: e.data.print }; fin(); } };
     window.addEventListener('message', on);
     setTimeout(fin, 12000);
-    f.src = '/slip.html?id=' + id + '&t=' + Date.now();
+    if (slipReady) f.contentWindow.postMessage({ slip: id }, '*');   // tez rasta
+    else f.src = '/slip.html?id=' + id + '&t=' + Date.now();          // frame tayyar na ho to purana tareeqa
   });
 }
 async function pollPrint() {
@@ -485,11 +490,13 @@ async function pollPrint() {
   printing = true;
   try {
     const ids = await api('/api/print/pending');
-    for (const id of ids) { await printOne(id); await api(`/api/orders/${id}/printed`, {}); }
+    for (const id of ids) { const t = await printOne(id); await api(`/api/orders/${id}/printed`, { body: t }); }
+    if (ids.length && !slipReady) warmSlip();   // purane tareeqe se nikli ho to frame dobara tayyar
   } catch (e) { /* server band ho to agli dafa try hoga */ }
   printing = false;
 }
 setInterval(pollPrint, 3000);
+setTimeout(warmSlip, 1500);
 
 async function loadRiders() {
   try { const r = await api('/api/riders'); $('#riders').innerHTML = r.map(x => `<option value="${esc(x)}">`).join(''); } catch (e) {}
@@ -503,7 +510,7 @@ $('#btnOrders').onclick = openOrders;
 $('#btnStation').onclick = async () => {
   const turnOn = !isStation();
   if (turnOn) { try { await api('/api/print/skip-old', {}); } catch (e) {} }   // purane jama orders ab nahi nikalenge
-  localStorage.setItem('station', turnOn ? '1' : '0'); updStation();
+  localStorage.setItem('station', turnOn ? '1' : '0'); updStation(); if (turnOn) warmSlip();
   if (turnOn) toast('Printer ON: ab sirf naye orders ki slips nikalen gi'); };
 $('#cartbar').onclick = () => $('#cart').classList.add('open');
 $('#closeCart').onclick = () => $('#cart').classList.remove('open');

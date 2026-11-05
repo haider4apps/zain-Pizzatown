@@ -83,12 +83,15 @@ function delivery(o, L) {
   </div>`;
 }
 
-(async () => {
+// Slip banana. Do tareeqe: (1) ?id=.. se seedha (preview / purana), (2) "warm" frame: page + font pehle se load,
+// POS sirf {slip:id} bhejta hai, data aate hi print (har order par page dobara load nahi hota = tez)
+async function render(id, opts = {}) {
+  const t0 = performance.now();
   try {
-    const id = P.get('id');
     const [o, S] = await Promise.all([fetch('/api/orders/' + id).then(r => r.json()), fetch('/api/settings').then(r => r.json())]);
+    document.querySelectorAll('style[data-slip]').forEach(x => x.remove());
     const w = parseInt(S.paper_mm) || 80;
-    const st = document.createElement('style');
+    const st = document.createElement('style'); st.dataset.slip = '1';
     const tp = Math.min(20, Math.max(0, parseFloat(S.slip_top_mm) || 0)), bt = Math.min(30, Math.max(0, S.slip_bottom_mm === undefined || S.slip_bottom_mm === '' ? 1 : parseFloat(S.slip_bottom_mm) || 0));
     const mg = Math.min(15, Math.max(0, parseFloat(S.slip_margin_mm) || 6));
     st.textContent = `@page{size:${w}mm auto;margin:0}html,body{box-sizing:border-box}body{width:${w - 2 * mg}mm;margin-left:auto;margin-right:auto;padding-top:${tp}mm}.slip{padding-bottom:${bt}mm}`;
@@ -103,15 +106,23 @@ function delivery(o, L) {
     if (S.print_bill === '1') html += bill(o, S, L);
     if (S.print_kitchen === '1') html += kitchen(o, L);
     if (o.type === 'delivery' && S.print_delivery === '1') html += delivery(o, L);
+    document.body.classList.toggle('en', lang === 'en');   // English slip: body bhi English font (Urdu font download na ho)
     document.getElementById('root').innerHTML = html;
     if (!P.get('preview')) {
-      window.onafterprint = () => parent.postMessage({ slipDone: id }, '*');
-      try { await document.fonts.load('20px Gulzar', 'آرڈر'); } catch (e) {}
-      await document.fonts.ready;
-      setTimeout(() => window.print(), 300);
+      // Urdu font sirf Urdu slip ke liye (English slip par intezar nahi = tez)
+      if (lang === 'ur') { try { await document.fonts.load('20px Gulzar', 'آرڈر'); } catch (e) {} await document.fonts.ready; }
+      const t1 = performance.now();
+      window.onafterprint = () => { window.onafterprint = null; parent.postMessage({ slipDone: id, load: Math.round(t1 - t0), print: Math.round(performance.now() - t1) }, '*'); };
+      setTimeout(() => window.print(), opts.warm ? 50 : 300);
     }
   } catch (e) {
     document.getElementById('root').textContent = 'Slip load nahi hui: ' + e.message;
-    if (!P.get('preview')) parent.postMessage({ slipDone: P.get('id') }, '*');
+    if (!P.get('preview')) parent.postMessage({ slipDone: id, load: Math.round(performance.now() - t0), print: 0 }, '*');
   }
-})();
+}
+if (P.get('warm')) {
+  // Font pehle se load kar ke tayyar; POS ko batao
+  // Urdu font pehle se sirf tab load karo jab dukaan ki slip Urdu ho (English ho to zaroorat nahi)
+  (async () => { try { const S = await fetch('/api/settings').then(r => r.json()); if (S.slip_lang_default !== 'en') await document.fonts.load('20px Gulzar', 'آرڈر'); } catch (e) {} parent.postMessage({ slipReady: 1 }, '*'); })();
+  window.addEventListener('message', e => { if (e.data && e.data.slip) render(e.data.slip, { warm: true }); });
+} else render(P.get('id'));

@@ -3,6 +3,7 @@ const Database = require('better-sqlite3');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
+try { os.setPriority(0, os.constants.priority.PRIORITY_ABOVE_NORMAL); } catch (e) {}   // PC busy ho tab bhi POS aage
 const crypto = require('crypto');
 const { execFile } = require('child_process');
 const PKG = require('./package.json');
@@ -253,6 +254,12 @@ function enqueueOrder(o, rev, fix) {
   itemSheetRows(o, rev, fix).forEach(r => enqueue('items', r[0], r));
 }
 
+// ---------- Printer ko pehli bari: order ke baad ka bhaari kaam (Sheet sync, stock hisaab) slip nikalne ke baad ----------
+// Slip print hote hi ("printed") chal jata hai; printer band ho ya slip na nikle to zyada se zyada 15 sec baad
+let AFTER = [], afterTimer = null;
+function afterPrint(fn) { if (!AFTER.includes(fn)) AFTER.push(fn); if (!afterTimer) afterTimer = setTimeout(runAfterPrint, 15000); }
+function runAfterPrint() { clearTimeout(afterTimer); afterTimer = null; const l = AFTER; AFTER = []; setTimeout(() => l.forEach(f => { try { f(); } catch (e) { console.error(e); } }), 500); }
+
 // ---------- Google Sheet sync (offline-first: internet aaye to khud chala jata hai) ----------
 let syncing = false;
 async function syncOnce() {
@@ -291,7 +298,7 @@ async function syncOnce() {
     return { error: msg };
   } finally { syncing = false; }
 }
-setInterval(() => syncOnce().catch(() => {}), 20000);
+setInterval(() => { if (!afterTimer) syncOnce().catch(() => {}); }, 20000);   // slip nikal rahi ho to sync baad mein
 let syncTimer;
 const syncSoon = () => { clearTimeout(syncTimer); syncTimer = setTimeout(() => syncOnce().catch(() => {}), 1500); };
 
@@ -378,6 +385,7 @@ async function versionInfo() {
 // ---------- app ----------
 const app = express();
 app.use(express.json({ limit: '1mb' }));
+app.use('/fonts', express.static(path.join(__dirname, 'public', 'fonts'), { maxAge: '30d', immutable: true }));   // font badalta nahi: browser yaad rakhe
 app.use(express.static(path.join(__dirname, 'public')));
 
 
@@ -683,7 +691,7 @@ function insertOrder(b, calc, S, replaces) {
   const ins = db.prepare('insert into order_items(order_id,item_name,variant_label,details,price,cost,qty,note,extras,extras_price,variant_id,pz) values(?,?,?,?,?,?,?,?,?,?,?,?)');
   lines.forEach(l => ins.run(oid, l.name, l.label, l.details, l.price, l.cost, l.qty, l.note, l.extras, l.ep, l.vid || null, l.pz || ''));
   try { stockOut(oid, lines, bd, type); } catch (e) { console.error('stock', e.message); }
-  setImmediate(stockAlertCheck);
+  afterPrint(stockAlertCheck);   // print pehle; stock ka hisaab slip nikalne ke baad
   const lang = ['ur', 'en'].includes(b.slip_lang) ? b.slip_lang : (S.slip_lang_default === 'en' ? 'en' : 'ur');
   db.prepare('update orders set slip_lang=? where id=?').run(lang, oid);
   if (b.no_print) db.prepare('update orders set printed=1 where id=?').run(oid);   // is order ki slip nahi nikalni
@@ -705,7 +713,7 @@ app.post('/api/orders', (req, res) => {
     }
     const sync = syncOn();
     const id = db.transaction(() => insertOrder(b, calc, S, null))();
-    if (sync) syncSoon();
+    if (sync) afterPrint(syncSoon);   // Sheet ko bhejna slip nikalne ke baad (printer ko pehli bari)
     const out = publicOrder(loadOrder(id));
     // aaj ki sale ne 30k/40k/50k paar kiya? (sirf hadd ka number bhejte hain, kul sale nahi)
     try {
@@ -761,6 +769,13 @@ app.get('/api/orders/:id', (req, res) => {
 });
 app.post('/api/orders/:id/printed', (req, res) => {
   db.prepare('update orders set printed=1 where id=?').run(req.params.id); res.json({ ok: true });
+  // Slip ka waqt: order (ya reprint) se print tak. 5 sec se zyada ho to Events mein (net chalu/band ke saath) taake asal wajah pata chale
+  try {
+    const o = db.prepare('select order_no,print_at,created_at from orders where id=?').get(req.params.id), b = req.body || {};
+    const from = o && (o.print_at || o.created_at), secs = from ? Math.round((Date.now() - new Date(from.replace(' ', 'T'))) / 1000) : 0;
+    if (secs >= 5 && secs < 3600) logEvent('print', `Slip der se: #${o.order_no} ${secs} sec (${online ? 'net chalu' : 'net band'}; slip banana ${Math.round((+b.load || 0) / 100) / 10}s, print ${Math.round((+b.print || 0) / 100) / 10}s)`);
+  } catch (e) {}
+  runAfterPrint();
 });
 app.post('/api/orders/:id/reprint', (req, res) => {
   const lang = (req.body || {}).lang;
