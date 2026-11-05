@@ -706,6 +706,12 @@ async function viewSettings() {
   }).join('') + `<button class="btn gold" id="saveS">Save settings</button>
   <button class="btn" id="pvS">Slip preview (aakhri order ki)</button>
   <div class="box" id="syncBox" style="background:var(--panel2)">Sheet sync check ho raha hai...</div>
+  <div class="box" id="bkBox" style="background:var(--panel2)"><b style="color:var(--gold)">💾 Settings backup email (naya PC ho to sab wapas)</b>
+    <div style="color:var(--mute);font-size:13px">Menu, qeematein, deals, recipes, stock list, fryer oil aur ye settings ki file email par jati hai: jab bhi koi setting badle (5 minute baad), ya neeche wala button dabayen. Orders aur kharcha Sheet mein hain. Admin PIN file mein nahi.</div>
+    <div class="f"><label>Backup email (badalne ke liye Admin PIN)</label><div class="r"><input id="bkEmail" readonly style="flex:1"><button class="btn s" id="bkEdit">Badlein</button></div></div>
+    <div id="bkInfo" style="font-size:13px">...</div>
+    <div class="r" style="margin-top:6px"><button class="btn gold s" id="bkMail">📧 Settings abhi email karein</button>
+      <button class="btn s" id="bkUp">⬆ Email wali file se wapas laayen</button><input type="file" id="bkFile" accept=".json,application/json" hidden></div></div>
   <div class="box" id="updBox" style="background:var(--panel2)"><b style="color:var(--gold)">Software update (GitHub)</b><div id="updInfo">...</div>
     <div class="r"><button class="btn s" id="updCheck">Check for update</button><button class="btn gold s" id="updGo" style="display:none">Update karein</button></div></div>
   <div style="color:var(--mute);font-size:13px">Mobile se order lene ke liye PC aur mobile aik hi WiFi par hon, aur mobile ke browser mein PC ka address kholen (server ki black window mein "Mobile par:" ke aage likha hota hai).</div></div>`;
@@ -715,6 +721,38 @@ async function viewSettings() {
       : `<b>Google Sheet:</b> ${y.pending ? '⏳ ' + y.pending + ' records bhejne baqi' : '✓ sab bhej diya'}<br>Aakhri kamyab sync: ${y.last_ok || '-'}${y.last_error ? `<br><span style="color:var(--red)">Masla: ${esc(y.last_error)}</span>` : ''}
          <div class="r" style="margin-top:6px"><button class="btn s" id="syncNow">Abhi sync karein</button></div>`;
     const sn = $('#syncNow'); if (sn) sn.onclick = () => guard(async () => { const x = await A('/sync/now', 'POST'); toast(x.error ? x.error : 'Sync ho gaya ✓', 3500); viewSettings(); });
+  });
+  const bkInfo = async () => {
+    const b = await A('/backup/status');
+    $('#bkEmail').value = b.email;
+    $('#bkInfo').innerHTML = (b.last_mail ? 'Aakhri email: ' + esc(b.last_mail) : 'Abhi tak koi email nahi gayi') +
+      (b.last_error ? `<br><span style="color:var(--red)">Masla: ${esc(b.last_error)}</span>` : '');
+  };
+  guard(bkInfo);
+  $('#bkEdit').onclick = () => guard(async () => {
+    const email = prompt('Backup kis email par aaye? (kai hon to comma se)', $('#bkEmail').value);
+    if (email === null) return;
+    const pin = prompt('Admin PIN likhein'); if (!pin) return;
+    await A('/backup/email', 'POST', { email: email.trim(), pin });
+    toast('Email badal gayi ✓ · ab backup bhej rahe hain...', 3000);
+    const x = await A('/backup/mail', 'POST'); toast(x.error ? x.error : 'Backup email ho gaya ✓ ' + x.to, 4000); bkInfo();
+  });
+  $('#bkMail').onclick = () => guard(async () => {
+    $('#bkInfo').textContent = 'Bhej rahe hain...';
+    const x = await A('/backup/mail', 'POST'); toast(x.error ? x.error : 'Backup email ho gaya ✓ ' + x.to, 4000); bkInfo();
+  });
+  $('#bkUp').onclick = () => $('#bkFile').click();
+  $('#bkFile').onchange = () => guard(async () => {
+    const f = $('#bkFile').files[0]; $('#bkFile').value = '';
+    if (!f) return;
+    let b; try { b = JSON.parse(await f.text()); } catch (e) { throw new Error('Ye file sahi nahi (JSON nahi)'); }
+    if (b.app !== 'PizzaTown' || b.type !== 'settings-backup') throw new Error('Ye Pizza Town ki settings backup file nahi');
+    const n = (b.data.variants || []).filter(v => !v.deleted).length;
+    if (!confirm(`Backup ${b.created} (${b.shop || ''}) wapas laayen?\n\nIs PC ka menu, qeematein (${n}), deals, recipes, stock list aur settings is file jaisi ho jayengi.\nOrders, stock ki miqdar, kharcha aur Admin PIN waise hi rahenge.\nPehle is PC ki poori copy backups folder mein ban jaye gi.`)) return;
+    const pin = prompt('Wapas laane ke liye Admin PIN likhein'); if (!pin) return;
+    const r = await fetch('/api/admin/backup/restore', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-admin-pin': PIN, 'x-confirm-pin': pin }, body: JSON.stringify(b) });
+    const j = await r.json().catch(() => ({})); if (!r.ok) throw new Error(j.error || 'Wapas nahi aa saki');
+    toast('Settings wapas aa gayin ✓', 4000); viewSettings();
   });
   const ver = await (await fetch('/api/version')).json();
   $('#updInfo').textContent = `Version ${ver.version}${ver.commit ? ' (' + ver.commit + ', ' + ver.date + ')' : ''}${ver.git ? '' : ' - GitHub se link nahi (setup.bat chalayen)'}`;

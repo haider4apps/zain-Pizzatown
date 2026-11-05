@@ -104,6 +104,9 @@ const addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x
 addCol('stock_items', 'daily_use', 'real default 0');     // roz ka tay kharch (sabzi): recipe nahi, har din khud minus
 db.exec('create table if not exists oil_changes(id integer primary key, date text not null, litres real default 16, note text default \'\', created_at text)');
 addCol('oil_changes', 'expense_id', 'integer');
+// "Internet band raha" / "POS band tha" entries band: purani local bhi saaf, aur jo Sheet par jani baqi thi wo bhi nahi jayengi
+db.exec("delete from events where kind='offline'");
+db.exec("update outbox set synced_at='skip' where synced_at is null and kind='events' and payload like '%\"offline\"%'");
 addCol('stock_items', 'alert_days', 'real default 0');    // 0 = automatic (Settings wale din, kam se kam 3); warna is item ke apne din          // deal ke pizza flavour + topping
 db.exec(`
 create table if not exists prep_recipes(prep_id integer not null, item_id integer not null, qty real not null, primary key(prep_id,item_id));
@@ -165,10 +168,14 @@ const DEFAULTS = {
   stock_v2b_done: '',
   stock_v2c_done: '',
   opening_nov4_done: '',
+  backup_email: '',               // settings backup is email par (comma se kai)
+  last_backup_hash: '',           // (internal)
+  last_backup_mail: '',           // (internal) aakhri email kab gayi
+  last_backup_error: '',          // (internal)
   coat_maida_done: '',            // (internal) wings/thai coating maida aik baar          // (internal) 4 Nov wala shuru ka stock aik baar             // (internal) Nuggets pack 35 wapas             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
 };
-const INTERNAL = new Set(['oil_merge_done', 'sabzi_oil_done', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
-const SECRET = new Set(['oil_merge_done', 'sabzi_oil_done', 'admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
+const INTERNAL = new Set(['last_backup_hash', 'last_backup_mail', 'last_backup_error', 'oil_merge_done', 'sabzi_oil_done', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
+const SECRET = new Set(['last_backup_hash', 'last_backup_mail', 'last_backup_error', 'oil_merge_done', 'sabzi_oil_done', 'admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -312,6 +319,7 @@ function reconcileJournal() {
     let n = 0;
     db.transaction(() => rows.forEach(e => {
       if (have.has(e.k + '|' + e.u)) return;
+      if (e.k === 'events' && Array.isArray(e.p) && e.p[2] === 'offline') return;   // internet/POS band wali entries ab Sheet par nahi
       ins.run(e.k, e.u, JSON.stringify(e.p), fmtDT(new Date())); n++;
     }))();
     if (n) { logEvent('setting', `Journal se ${n} records dobara queue mein daale gaye`); syncSoon(); }
@@ -333,18 +341,12 @@ async function monitorTick() {
   } catch (e) { ok = false; }
   if (!ok && online) { online = false; offlineSince = now; }
   else if (ok && !online) {
-    const m = minsBetween(offlineSince, now);
     online = true;
-    logEvent('offline', `Internet band raha: ${offlineSince.slice(11, 16)} se ${now.slice(11, 16)} (${m} minute)`);
-    offlineSince = null; syncSoon();
+    offlineSince = null; syncSoon();   // internet wapas: foran sync (Sheet mein "Internet band" entry ab nahi jati)
   }
 }
 function startupCheck() {
   const S = getSettings(), now = fmtDT(new Date());
-  if (S.last_alive && syncOn()) {
-    const m = minsBetween(S.last_alive, now);
-    if (m >= 3) logEvent('offline', `POS band tha: ${S.last_alive.slice(11, 16)} se ${now.slice(11, 16)} (${m} minute)`);
-  }
   setSetting('last_alive', now);
   reconcileJournal();
 }
@@ -362,6 +364,102 @@ async function dailyBackup() {
 }
 dailyBackup();
 setInterval(dailyBackup, 6 * 3600e3);
+
+// ---------- Settings backup (router ki config file jaisa): menu, qeematein, deals, recipes, stock list, settings ----------
+// Orders/stock/kharcha is mein NAHI (wo Sheet mein hain). Admin PIN bhi nahi. Naye PC par "Backup se wapas" se sab wapas.
+const BK_TABLES = {
+  categories: ['id', 'name', 'name_ur', 'sort', 'active', 'deleted'],
+  items: ['id', 'category_id', 'name', 'name_ur', 'grp', 'details', 'sort', 'active', 'deleted'],
+  variants: ['id', 'item_id', 'label', 'price', 'cost', 'sort', 'active', 'deleted'],
+  stock_items: ['id', 'name', 'unit', 'min_level', 'active', 'grp', 'sub_unit', 'sub_per', 'pack_size', 'pack_name', 'is_prep', 'prep_yield', 'rate', 'daily_use', 'alert_days', 'created_at'],
+  recipes: ['variant_id', 'item_id', 'qty', 'away'],
+  prep_recipes: ['prep_id', 'item_id', 'qty'],
+  deal_parts: ['id', 'variant_id', 'part_vid', 'qty', 'slot'],
+  oil_changes: ['date', 'litres', 'note'],   // fryer kab badla (naye PC par oil alert sahi din se)
+};
+const BK_NO_SET = new Set([...SECRET].filter(k => k !== 'sheet_url' && k !== 'sheet_key'));   // PIN aur andar ki cheezein nahi
+function settingsBackup() {
+  const settings = {};
+  Object.entries(getSettings()).forEach(([k, v]) => { if (k in DEFAULTS && !BK_NO_SET.has(k)) settings[k] = v; });
+  const data = {};
+  Object.entries(BK_TABLES).forEach(([t, cols]) => { data[t] = db.prepare(`select ${cols.join(',')} from ${t}${t === 'oil_changes' ? ' order by date desc limit 20' : ''}`).all(); });
+  return { app: 'PizzaTown', type: 'settings-backup', format: 1, version: PKG.version, created: fmtDT(new Date()), shop: settings.shop_name || '', settings, data };
+}
+// sirf asal tabdeeli par nayi email (stock ka rate har "saman aaya" par badalta hai, us par nahi)
+const backupHash = b => crypto.createHash('sha256').update(JSON.stringify({ s: b.settings,
+  d: { ...b.data, stock_items: b.data.stock_items.map(({ rate, ...r }) => r) } })).digest('hex').slice(0, 20);
+const backupName = b => `PizzaTown-settings-${b.created.slice(0, 10)}.json`;
+let BK_WAIT = null;
+async function mailBackup(force) {
+  const S = getSettings(), b = settingsBackup(), h = backupHash(b);
+  const to = String(S.backup_email || '').split(/[,; ]+/).filter(x => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x)).join(',');
+  if (!to) return { error: 'Backup ke liye email likh kar Save karein' };
+  if (!S.sheet_url || !S.sheet_key) return { error: 'Google Sheet juri nahi (email Sheet ke Apps Script se jati hai)' };
+  if (!force) {   // sirf tabdeeli par; tabdeeli ke baad 5 minute rukte hain taake aik saath ki kai tabdeeliyan aik hi email mein jayein
+    if (h === S.last_backup_hash) { BK_WAIT = null; return { skipped: true }; }
+    if (!BK_WAIT || BK_WAIT.h !== h) { BK_WAIT = { h, at: Date.now() }; return { waiting: true }; }
+    if (Date.now() - BK_WAIT.at < 5 * 60000) return { waiting: true };
+  }
+  try {
+    const ctrl = new AbortController(); const t = setTimeout(() => ctrl.abort(), 40000);
+    const r = await fetch(S.sheet_url, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, redirect: 'follow', signal: ctrl.signal,
+      body: JSON.stringify({ key: S.sheet_key, backup: { to, name: backupName(b), shop: b.shop, created: b.created, json: JSON.stringify(b, null, 1) } }) });
+    clearTimeout(t);
+    let j; try { j = JSON.parse(await r.text()); } catch (e) { throw new Error('Script ka jawab samajh nahi aaya'); }
+    if (!j.ok) throw new Error(j.error || 'Script ne mana kar diya');
+    if (!j.mailed) throw new Error('Sheet ka Apps Script purana hai: naya Code.gs daal kar dobara deploy karein');
+    setSetting('last_backup_hash', h); setSetting('last_backup_mail', fmtDT(new Date())); setSetting('last_backup_error', ''); BK_WAIT = null;
+    return { ok: true, to };
+  } catch (e) {
+    const msg = (e.name === 'AbortError' ? 'Internet/Google se jawab nahi aaya' : e.message).slice(0, 200);
+    setSetting('last_backup_error', fmtDT(new Date()) + ' - ' + msg);
+    return { error: msg };
+  }
+}
+setInterval(() => { if (!afterTimer) mailBackup().catch(() => {}); }, 60000);
+
+function restoreSettings(b) {
+  if (!b || b.app !== 'PizzaTown' || b.type !== 'settings-backup' || !b.data || !b.settings) throw new Error('Ye Pizza Town ki settings backup file nahi');
+  for (const t of Object.keys(BK_TABLES)) if (t !== 'oil_changes' && !Array.isArray(b.data[t])) throw new Error('Backup file adhuri hai (' + t + ')');
+  const before = getSettings();
+  db.pragma('foreign_keys = OFF');
+  try {
+    db.transaction(() => {
+      // settings (PIN aur andar wali nahi; Sheet link sirf tab jab is PC par pehle se na ho)
+      Object.entries(b.settings).forEach(([k, v]) => {
+        if (!(k in DEFAULTS) || BK_NO_SET.has(k)) return;
+        if ((k === 'sheet_url' || k === 'sheet_key') && before.sheet_url && before.sheet_key) return;
+        setSetting(k, v);
+      });
+      // menu + stock list: id wahi rakhte hain (purane orders/stock ka hisaab na bigray); jo backup mein nahi wo chhup jata hai
+      const upsert = (t, cols, rows) => {
+        const st = db.prepare(`insert into ${t}(${cols.join(',')}) values(${cols.map(() => '?').join(',')}) on conflict(id) do update set ${cols.filter(c => c !== 'id').map(c => `${c}=excluded.${c}`).join(',')}`);
+        rows.forEach(r => st.run(...cols.map(c => r[c] === undefined ? null : r[c])));
+      };
+      for (const t of ['categories', 'items', 'variants']) {
+        const ids = b.data[t].map(r => r.id);
+        db.prepare(`update ${t} set deleted=1 where id not in (${ids.map(() => '?').join(',') || 'null'})`).run(...ids);
+        upsert(t, BK_TABLES[t], b.data[t]);
+      }
+      const sids = b.data.stock_items.map(r => r.id);
+      db.prepare(`update stock_items set active=0 where id not in (${sids.map(() => '?').join(',') || 'null'})`).run(...sids);
+      upsert('stock_items', BK_TABLES.stock_items, b.data.stock_items);
+      if (Array.isArray(b.data.oil_changes) && !db.prepare('select count(*) n from oil_changes').get().n) {
+        const st = db.prepare('insert into oil_changes(date,litres,note,created_at) values(?,?,?,?)');
+        b.data.oil_changes.slice().reverse().forEach(r => st.run(r.date, r.litres, r.note || '', fmtDT(new Date())));
+      }
+      for (const t of ['recipes', 'prep_recipes', 'deal_parts']) {
+        db.prepare(`delete from ${t}`).run();
+        const cols = BK_TABLES[t], st = db.prepare(`insert into ${t}(${cols.join(',')}) values(${cols.map(() => '?').join(',')})`);
+        b.data[t].forEach(r => st.run(...cols.map(c => r[c] === undefined ? null : r[c])));
+      }
+    })();
+  } finally { db.pragma('foreign_keys = ON'); }
+  FRIED = null;
+  const S = getSettings();
+  if (S.sheet_url && S.sheet_key && !S.sync_since) setSetting('sync_since', fmtDT(new Date()));
+  logEvent('setting', `Settings backup se wapas laayi gayin (backup ${b.created}, ${b.data.variants.length} qeematein, ${b.data.stock_items.length} stock items)`);
+}
 
 // ---------- git helpers (Software update) ----------
 function run(cmd, args, opts = {}) {
@@ -802,7 +900,7 @@ admin.put('/settings', (req, res) => {
   const up = db.prepare('insert into settings(key,value) values(?,?) on conflict(key) do update set value=excluded.value');
   db.transaction(() => {
     Object.entries(req.body || {}).forEach(([k, v]) => {
-      if (!(k in DEFAULTS) || INTERNAL.has(k)) return;
+      if (!(k in DEFAULTS) || INTERNAL.has(k) || k === 'backup_email') return;   // backup email sirf PIN wale raste se
       v = String(v);
       if (k === 'admin_pin' && !v.trim()) return;
       if (v === old[k]) return;
@@ -1242,6 +1340,29 @@ admin.get('/sync', (req, res) => {
   });
 });
 admin.post('/sync/now', async (req, res) => res.json(await syncOnce()));
+admin.get('/backup/status', (req, res) => {
+  const S = getSettings();
+  res.json({ email: S.backup_email || '', last_mail: S.last_backup_mail || '', last_error: S.last_backup_error || '' });
+});
+// email badalne ke liye Admin PIN dobara (admin khula ho tab bhi)
+admin.post('/backup/email', (req, res) => {
+  const b = req.body || {}, S = getSettings();
+  if (String(b.pin || '') !== S.admin_pin) return res.status(403).json({ error: 'PIN ghalat hai' });
+  const v = String(b.email || '').split(/[,; ]+/).filter(Boolean);
+  if (v.some(x => !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x))) return res.status(400).json({ error: 'Email ghalat likhi hai' });
+  const email = v.join(',');
+  if (email !== (S.backup_email || '')) { setSetting('backup_email', email); setSetting('last_backup_hash', ''); logEvent('setting', 'Backup email badli gayi'); }
+  res.json({ ok: true });
+});
+admin.post('/backup/mail', async (req, res) => res.json(await mailBackup(true)));
+admin.post('/backup/restore', async (req, res) => {
+  try {
+    if (String(req.headers['x-confirm-pin'] || '') !== getSettings().admin_pin) return res.status(403).json({ error: 'PIN ghalat hai' });
+    await db.backup(path.join(BACKUPS, `pehle-restore-${fmtDT(new Date()).replace(/[: ]/g, '-')}.db`));   // pehle poori copy, ghalti ho to wapas
+    restoreSettings(req.body);
+    res.json({ ok: true });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 // ----- Software update (GitHub se) -----
 admin.get('/update/check', async (req, res) => {

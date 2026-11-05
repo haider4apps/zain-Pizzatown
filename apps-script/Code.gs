@@ -5,6 +5,9 @@
  * Deploy > New deployment > Web app > Execute as: Me, Who has access: Anyone
  * POS Admin > Settings mein Web App URL aur wahi SECRET key daalen.
  * Sirf rows add hoti hain (append-only); purani rows kabhi change nahi hotin.
+ * Settings backup: POS menu/qeematein/recipes/settings ki file email kar deta hai (Sheet mein kuch nahi likhta).
+ * Pehli dafa: editor mein testBackupMail chala kar email ki ijazat (Allow) dein, phir
+ * Deploy > Manage deployments > Edit > Version: New version > Deploy (URL wahi rehta hai).
  */
 var SHEETS = { orders: 'Orders', items: 'OrderItems', expenses: 'Expenses', events: 'Events' };
 var TEXT_COLS = { Orders: [3, 4, 6, 8], OrderItems: [4], Expenses: [2], Events: [2] };
@@ -21,6 +24,7 @@ function doPost(e) {
     var body = JSON.parse(e.postData.contents);
     var secret = PropertiesService.getScriptProperties().getProperty('SECRET');
     if (!secret || body.key !== secret) return out({ ok: false, error: 'Key ghalat hai' });
+    if (body.backup) return out(mailBackup(body.backup));
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     var now = Utilities.formatDate(new Date(), 'Asia/Karachi', 'yyyy-MM-dd HH:mm:ss');
     var cache = {}, added = 0, dup = 0;
@@ -57,4 +61,27 @@ function doPost(e) {
   } finally {
     try { lock.releaseLock(); } catch (x) {}
   }
+}
+
+// POS ki settings backup file email par (attachment). Sheet ka koi data nahi chhehrta.
+function mailBackup(b) {
+  var to = String(b.to || '').split(/[,; ]+/).filter(function (x) { return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(x); }).slice(0, 5).join(',');
+  if (!to) return { ok: false, error: 'Email ghalat hai' };
+  var name = String(b.name || 'PizzaTown-settings.json').replace(/[^\w.\-]/g, '_');
+  var blob = Utilities.newBlob(String(b.json || ''), 'application/json', name);
+  MailApp.sendEmail({
+    to: to,
+    subject: (b.shop || 'Pizza Town') + ' POS settings backup ' + (b.created || ''),
+    body: 'Pizza Town POS ki settings ka backup saath laga hai (menu, qeematein, deals, recipes, stock list, settings).\n' +
+      'Orders, stock aur kharcha is mein nahi (wo Google Sheet mein hain). Admin PIN bhi nahi.\n\n' +
+      'Naye PC par: POS install karein > Admin > Settings > "Backup file se wapas laayen" > ye file chunein.\n' +
+      'Is file ko sambhal kar rakhein, kisi ko forward na karein.',
+    attachments: [blob],
+  });
+  return { ok: true, mailed: true };
+}
+
+// Aik dafa editor se chalayen (email bhejne ki ijazat ke liye). Apne account par test email aaye gi.
+function testBackupMail() {
+  MailApp.sendEmail(Session.getEffectiveUser().getEmail(), 'Pizza Town backup test', 'Email ki ijazat mil gayi. Ab naya version deploy karein.');
 }
