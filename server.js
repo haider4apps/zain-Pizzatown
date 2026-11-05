@@ -767,12 +767,17 @@ app.get('/api/orders/:id', (req, res) => {
   const o = loadOrder(req.params.id);
   o ? res.json(publicOrder(o)) : res.status(404).json({ error: 'Order nahi mila' });
 });
+// Har slip ka waqt (aakhri 50) PC ke andar: /api/print/log (Sheet ki zaroorat nahi). total = order se slip tak, load = slip banana, print = Chrome + Windows
+const PRINT_LOG = [];
+app.get('/api/print/log', (req, res) => res.json(PRINT_LOG));
 app.post('/api/orders/:id/printed', (req, res) => {
   db.prepare('update orders set printed=1 where id=?').run(req.params.id); res.json({ ok: true });
   // Slip ka waqt: order (ya reprint) se print tak. 5 sec se zyada ho to Events mein (net chalu/band ke saath) taake asal wajah pata chale
   try {
     const o = db.prepare('select order_no,print_at,created_at from orders where id=?').get(req.params.id), b = req.body || {};
     const from = o && (o.print_at || o.created_at), secs = from ? Math.round((Date.now() - new Date(from.replace(' ', 'T'))) / 1000) : 0;
+    PRINT_LOG.unshift({ no: o.order_no, at: fmtDT(new Date()), total: Math.round((Date.now() - new Date(from.replace(' ', 'T'))) / 100) / 10, load: Math.round((+b.load || 0) / 100) / 10, print: Math.round((+b.print || 0) / 100) / 10, net: online ? 'chalu' : 'band' });
+    PRINT_LOG.length = Math.min(PRINT_LOG.length, 50);
     if (secs >= 5 && secs < 3600) logEvent('print', `Slip der se: #${o.order_no} ${secs} sec (${online ? 'net chalu' : 'net band'}; slip banana ${Math.round((+b.load || 0) / 100) / 10}s, print ${Math.round((+b.print || 0) / 100) / 10}s)`);
   } catch (e) {}
   runAfterPrint();

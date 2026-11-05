@@ -367,13 +367,13 @@ async function placeOrder() {
       payment: co.payment, gift_by: co.gift_by, note: co.note, slip_lang: co.slip_lang, no_print: !!co.no_print,
       items: cart.map(l => l.keep ? { keep: l.keep, qty: l.qty, note: l.note, extras: l.extras, extras_price: l.extras_price || 0, pz: pzSend(l) } : { variant_id: l.variant_id, qty: l.qty, note: l.note, extras: l.extras, extras_price: l.extras_price || 0, pz: pzSend(l) }) } });
     const wasEdit = editing ? editing.order_no : 0;
-    if (!wasEdit && window.funAfterOrder) try { funAfterOrder(o, settings); } catch (e) {}
     cart = []; co = null; editing = null;
     $('#coModal').classList.remove('on'); $('#cart').classList.remove('open');
     renderCart();
     toast(wasEdit ? `#${wasEdit} cancel, naya order #${o.order_no} · ${money(o.total)}` : `Order #${o.order_no} save ho gaya · ${money(o.total)}` + (isStation() ? '' : ' · Print PC par hoga'), 3500);
-    if (isStation()) pollPrint();
-    loadRiders(); loadStock();
+    if (isStation()) pollPrint();   // slip sab se pehle
+    // Baaki kaam (khushi wali animation, riders, stock + menu dobara) slip nikalne ke baad, taake printer ko pehli bari mile
+    afterSlip(() => { if (!wasEdit && window.funAfterOrder) try { funAfterOrder(o, settings); } catch (e) {} loadRiders(); loadStock(); });
   } catch (e) {
     placing = false; const ok0 = $('#coOk'); if (ok0) ok0.disabled = false;
     if (e.data && e.data.code === 'STOCK_BLOCK') return stockBlock(e.data, placeOrder);
@@ -485,6 +485,9 @@ function printOne(id) {
     else f.src = '/slip.html?id=' + id + '&t=' + Date.now();          // frame tayyar na ho to purana tareeqa
   });
 }
+// Slip chal rahi ho to UI ka bhaari kaam us ke baad (zyada se zyada 15 sec intezar)
+let slipWait = [];
+function afterSlip(fn) { if (!printing) return setTimeout(fn, 0); slipWait.push(fn); setTimeout(() => { const i = slipWait.indexOf(fn); if (i >= 0) { slipWait.splice(i, 1); fn(); } }, 15000); }
 async function pollPrint() {
   if (!isStation() || printing) return;
   printing = true;
@@ -494,8 +497,9 @@ async function pollPrint() {
     if (ids.length && !slipReady) warmSlip();   // purane tareeqe se nikli ho to frame dobara tayyar
   } catch (e) { /* server band ho to agli dafa try hoga */ }
   printing = false;
+  const w = slipWait; slipWait = []; if (w.length) setTimeout(() => w.forEach(f => { try { f(); } catch (e) {} }), 200);
 }
-setInterval(pollPrint, 3000);
+setInterval(pollPrint, 1000);   // mobile se aaye order bhi 1 second mein uthain (local call, PC par bojh nahi)
 setTimeout(warmSlip, 1500);
 
 async function loadRiders() {
