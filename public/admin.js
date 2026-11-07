@@ -709,7 +709,7 @@ const FIELDS = [
   ['slip_bottom_mm', 'Slip ke NICHAY ki khali jagah (mm, kam karna ho to 0-1)', 'number'],
   ['slip_margin_mm', 'Slip margin (har side, mm) - slip kate to barhayen', 'number'],
   ['slip_font_scale', 'Slip font size (print chhota aaye to barhayen)', 'select', [['60', '60% (bohat chhota)'], ['70', '70%'], ['80', '80%'], ['90', '90%'], ['100', '100%'], ['115', '115%'], ['130', '130% (default)'], ['150', '150%'], ['170', '170%'], ['200', '200% (bohat bara)']]],
-  ['print_bill', 'Customer bill print karein', 'check'], ['print_kitchen', 'Kitchen slip print karein', 'check'], ['print_delivery', 'Delivery slip print karein (delivery orders)', 'check'],
+  ['print_bill', 'Customer bill print karein', 'check'], ['print_kitchen', 'Kitchen slip print karein', 'check'], ['kitchen_prices', 'Kitchen slip par qeemat bhi dikhayen', 'check'], ['print_delivery', 'Delivery slip print karein (delivery orders)', 'check'],
   ['Google Sheet (malik/partners ke dekhne ke liye)', null],
   ['sheet_url', 'Apps Script Web App URL'],
   ['sheet_key', 'Secret key (wahi jo Script Properties mein SECRET hai)', 'password'],

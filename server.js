@@ -144,6 +144,7 @@ const DEFAULTS = {
   slip_font_scale: '130',         // slip ka size percent mein (100 = chhota, 200 = bohat bara)
   print_bill: '1',
   print_kitchen: '1',
+  kitchen_prices: '1',            // kitchen slip par bhi qeemat (sale slip jaisi)
   print_delivery: '1',
   day_start_hour: '5',            // raat 12 ke baad bhi din 5 baje tak wohi din shumar hota hai
   sheet_url: '',                  // Google Apps Script web app ka URL

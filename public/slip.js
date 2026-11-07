@@ -50,9 +50,10 @@ function bill(o, S, L) {
   </div>`;
 }
 
-function kitchen(o, L) {
-  const items = o.items.map(i => `<div class="k"><span class="q">${i.qty} ×</span> ${lineName(i)}
-    ${i.details ? `<small>${esc(i.details)}</small>` : ''}${i.extras ? `<div class="extra">${i.extras.split(' | ').map(x => '+ ' + esc(x)).join('<br>')}</div>` : ''}${i.note ? `<div class="note">${L.note}${esc(i.note)}</div>` : ''}</div>`).join('');
+function kitchen(o, L, S) {
+  const pr = S.kitchen_prices === '1';   // sale slip jaisi qeemat: har line ke saath Rs, neeche kul
+  const items = o.items.map(i => `<div class="k"><div class="kl"><span><span class="q">${i.qty} ×</span> ${lineName(i)}</span>${pr ? `<span class="kp">${i.price * i.qty}</span>` : ''}</div>
+    ${i.details ? `<small>${esc(i.details)}</small>` : ''}${i.extras ? `<div class="extra kl"><span>${i.extras.split(' | ').map(x => '+ ' + esc(x)).join('<br>')}</span>${pr && i.extras_price ? `<span class="kp">${i.extras_price}</span>` : ''}</div>` : ''}${i.note ? `<div class="note">${L.note}${esc(i.note)}</div>` : ''}</div>`).join('');
   return `<div class="slip${L.cls}">
     ${chg(o, L)}<div class="c title">${L.kitchen}</div>
     <div class="c big">#${o.order_no}</div>
@@ -61,6 +62,7 @@ function kitchen(o, L) {
     <div class="c small">${when(o.created_at)}</div>
     <hr>${items}
     ${o.note ? `<div class="note" style="margin-top:6px">${L.onote}${esc(o.note)}</div>` : ''}
+    ${pr ? `<hr>${o.discount ? row(L.disc, '- ' + rs(o.discount)) : ''}${o.delivery_charge ? row(L.del, rs(o.delivery_charge)) : ''}${o.service_charge ? row(L.svc, rs(o.service_charge)) : ''}${row(L.total, rs(o.total), 'grand')}` : ''}
   </div>`;
 }
 
@@ -104,7 +106,7 @@ async function render(id, opts = {}) {
     const L = LANG[lang];
     let html = '';
     if (S.print_bill === '1') html += bill(o, S, L);
-    if (S.print_kitchen === '1') html += kitchen(o, L);
+    if (S.print_kitchen === '1') html += kitchen(o, L, S);
     if (o.type === 'delivery' && S.print_delivery === '1') html += delivery(o, L);
     document.body.classList.toggle('en', lang === 'en');   // English slip: body bhi English font (Urdu font download na ho)
     document.getElementById('root').innerHTML = html;
