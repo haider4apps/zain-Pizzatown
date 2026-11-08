@@ -9,8 +9,10 @@
  * Pehli dafa: editor mein testBackupMail chala kar email ki ijazat (Allow) dein, phir
  * Deploy > Manage deployments > Edit > Version: New version > Deploy (URL wahi rehta hai).
  */
-var SHEETS = { orders: 'Orders', items: 'OrderItems', expenses: 'Expenses', events: 'Events' };
-var TEXT_COLS = { Orders: [3, 4, 6, 8], OrderItems: [4], Expenses: [2], Events: [2] };
+var SHEETS = { orders: 'Orders', items: 'OrderItems', expenses: 'Expenses', events: 'Events', stockinfo: 'StockInfo' };
+var TEXT_COLS = { Orders: [3, 4, 6, 8], OrderItems: [4], Expenses: [2], Events: [2], StockInfo: [2, 9] };
+// StockInfo = "Saman aaya" ki tafseel (chhupa tab). "Daily Stock Entry" tab isi se banta hai.
+var NEW_HEAD = { StockInfo: ['uid', 'date', 'saman', 'miqdar', 'unit', 'pack', 'rs', 'din_ka_dala', 'entry_time', 'synced_at'] };
 
 function doGet() {
   return ContentService.createTextOutput(JSON.stringify({ ok: true, app: 'PizzaTown' })).setMimeType(ContentService.MimeType.JSON);
@@ -32,6 +34,7 @@ function doPost(e) {
       var name = SHEETS[r.kind];
       if (!name) return;
       var sh = ss.getSheetByName(name);
+      if (!sh && NEW_HEAD[name]) { sh = ss.insertSheet(name); sh.appendRow(NEW_HEAD[name]); sh.setFrozenRows(1); sh.hideSheet(); }
       if (!sh) return;
       if (!cache[name]) {
         var n = sh.getLastRow();
@@ -55,7 +58,7 @@ function doPost(e) {
       (TEXT_COLS[name] || []).forEach(function (col) { sh.getRange(start, col, c.rows.length, 1).setNumberFormat('@'); });
       sh.getRange(start, 1, c.rows.length, width).setValues(c.rows);
     });
-    return out({ ok: true, added: added, dup: dup });
+    return out({ ok: true, added: added, dup: dup, kinds: Object.keys(SHEETS) });
   } catch (err) {
     return out({ ok: false, error: String(err) });
   } finally {

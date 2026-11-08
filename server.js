@@ -169,14 +169,16 @@ const DEFAULTS = {
   stock_v2b_done: '',
   stock_v2c_done: '',
   opening_nov4_done: '',
-  backup_email: '',               // settings backup is email par (comma se kai)
+  backup_email: '',
+  sheet_stockinfo: '',            // (internal) Sheet ka script "Daily Stock Entry" samajhta hai? 1/0
+  stockinfo_done: '',             // (internal) purani stock entries aik dafa bhej di               // settings backup is email par (comma se kai)
   last_backup_hash: '',           // (internal)
   last_backup_mail: '',           // (internal) aakhri email kab gayi
   last_backup_error: '',          // (internal)
   coat_maida_done: '',            // (internal) wings/thai coating maida aik baar          // (internal) 4 Nov wala shuru ka stock aik baar             // (internal) Nuggets pack 35 wapas             // (internal) pack size theek (Maida, Nuggets, F1/F2)              // (internal) recipes/stock v2 aik baar
 };
-const INTERNAL = new Set(['last_backup_hash', 'last_backup_mail', 'last_backup_error', 'oil_merge_done', 'sabzi_oil_done', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
-const SECRET = new Set(['last_backup_hash', 'last_backup_mail', 'last_backup_error', 'oil_merge_done', 'sabzi_oil_done', 'admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
+const INTERNAL = new Set(['sheet_stockinfo', 'stockinfo_done', 'last_backup_hash', 'last_backup_mail', 'last_backup_error', 'oil_merge_done', 'sabzi_oil_done', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
+const SECRET = new Set(['sheet_stockinfo', 'stockinfo_done', 'last_backup_hash', 'last_backup_mail', 'last_backup_error', 'oil_merge_done', 'sabzi_oil_done', 'admin_pin', 'sheet_key', 'sheet_url', 'sync_since', 'last_sync_ok', 'last_sync_error', 'golive_done', 'last_alive', 'purge_fake_done', 'restore_1850_done', 'stock_v2_done', 'stock_v2b_done', 'stock_v2c_done', 'opening_nov4_done', 'coat_maida_done']);
 const insSetting = db.prepare('insert or ignore into settings(key,value) values(?,?)');
 Object.entries(DEFAULTS).forEach(([k, v]) => insSetting.run(k, v));
 const setSetting = (k, v) =>
@@ -275,10 +277,11 @@ async function syncOnce() {
   if (!S.sheet_url || !S.sheet_key || !S.sync_since) return { skipped: true };
   if (syncing) return { busy: true };
   syncing = true;
-  let total = 0;
+  let total = 0, infoOk = null;
   try {
     for (;;) {
-      const rows = db.prepare('select id,kind,uid,payload from outbox where synced_at is null order by id limit 40').all();
+      // purana Apps Script "stockinfo" nahi samajhta: aisi rows tab tak ruki rehti hain jab tak naya script deploy na ho
+      const rows = db.prepare(`select id,kind,uid,payload from outbox where synced_at is null ${infoOk === false ? "and kind!='stockinfo'" : ''} order by id limit 40`).all();
       if (!rows.length) break;
       const ctrl = new AbortController();
       const timer = setTimeout(() => ctrl.abort(), 30000);
@@ -291,9 +294,12 @@ async function syncOnce() {
       let j; try { j = JSON.parse(text); } catch (e) { throw new Error('Script ka jawab samajh nahi aaya. Web app URL aur deploy check karein.'); }
       if (!j.ok) throw new Error(j.error || 'Sheet ne mana kar diya');
       const now = fmtDT(new Date());
-      const mark = db.prepare('update outbox set synced_at=? where id=?');
-      db.transaction(() => rows.forEach(r => mark.run(now, r.id)))();
-      total += rows.length;
+      infoOk = Array.isArray(j.kinds) && j.kinds.includes('stockinfo');
+      if (getSettings().sheet_stockinfo !== (infoOk ? '1' : '0')) setSetting('sheet_stockinfo', infoOk ? '1' : '0');
+      const mark = db.prepare('update outbox set synced_at=? where id=?'), done = rows.filter(r => r.kind !== 'stockinfo' || infoOk);
+      db.transaction(() => done.forEach(r => mark.run(now, r.id)))();
+      total += done.length;
+      if (!done.length) break;
       setSetting('last_sync_ok', now);
       if (rows.length < 40) break;
     }
@@ -550,6 +556,27 @@ function dailyUsage() {
   db.prepare('select id,daily_use from stock_items where daily_use>0 and active=1').all().forEach(r => { map[r.id] = (map[r.id] || 0) + r.daily_use; });
   USAGE = { key: bd, at: Date.now(), map, days };
   return USAGE;
+}
+// Kisi bhi date se pehle ke 7 din ki roz ki khapat (Daily Stock Entry: "kitne din ka dala")
+const USAGE_ON = {};
+function usageOn(bd) {
+  if (USAGE_ON[bd] && Date.now() - USAGE_ON[bd].at < 10 * 60 * 1000) return USAGE_ON[bd].map;
+  const d0 = new Date(bd + 'T00:00:00Z'); d0.setUTCDate(d0.getUTCDate() - 7);
+  const since = d0.toISOString().slice(0, 10);
+  const orders = db.prepare("select id,type from orders where status='done' and business_date>=? and business_date<?").all(since, bd);
+  const days = Math.max(1, db.prepare("select count(distinct business_date) n from orders where status='done' and business_date>=? and business_date<?").get(since, bd).n);
+  const li = db.prepare('select variant_id vid,qty,pz from order_items where order_id=?'), map = {};
+  orders.forEach(o => Object.entries(stockNeed(li.all(o.id).filter(l => l.vid), o.type)).forEach(([id, q]) => { map[id] = (map[id] || 0) + q; }));
+  Object.keys(map).forEach(k => { map[k] = map[k] / days; });
+  db.prepare('select id,daily_use from stock_items where daily_use>0').all().forEach(r => { map[r.id] = (map[r.id] || 0) + r.daily_use; });
+  USAGE_ON[bd] = { at: Date.now(), map };
+  return map;
+}
+// "Daily Stock Entry" tab ki row: [uid, date, saman, miqdar, unit, pack, Rs, kitne din ka dala, entry ka waqt]
+function stockInfoRow(uid, it, qty, amount, date, createdAt) {
+  const pk = it.pack_size > 0 ? `${r2(qty / it.pack_size)} ${it.pack_name || 'Pack'}` : '';
+  const pd = usageOn(date)[it.id] || 0;
+  return [uid, date, it.name, qty, it.unit, pk, amount, pd > 0 ? Math.round(qty / pd * 10) / 10 : '', createdAt];
 }
 function stockList() {
   const items = db.prepare('select * from stock_items where active=1 and coalesce(is_prep,0)=0 order by grp,name').all();
@@ -1137,6 +1164,7 @@ admin.post('/stock/in', (req, res) => {
       logEvent('expense', `${date} Saman (stock): Rs ${amount} (${note})`);
     }
     db.prepare("insert into stock_moves(item_id,qty,kind,expense_id,date,note,created_at) values(?,?,'in',?,?,?,?)").run(it.id, qty, eid, date, amount > 0 ? `Rs ${amount}` : '', now);
+    if (eid && syncOn()) { const ex = db.prepare('select uid from expenses where id=?').get(eid); enqueue('stockinfo', ex.uid, stockInfoRow(ex.uid, it, qty, amount, date, now)); }
     if (amount > 0) db.prepare('update stock_items set rate=? where id=?').run(amount / qty, it.id);   // nayi qeemat
   })();
   syncSoon(); stockAlertCheck();
@@ -1320,6 +1348,8 @@ admin.delete('/expenses/:id', (req, res) => {
   const list = e0.batch ? db.prepare('select * from expenses where batch=? and deleted=0').all(e0.batch) : [e0];
   list.forEach(e => {
     db.prepare('update expenses set deleted=1 where id=?').run(e.id);
+    const sm = db.prepare("select m.qty,s.name,s.unit from stock_moves m join stock_items s on s.id=m.item_id where m.expense_id=? and m.kind='in'").get(e.id);
+    if (sm && e.queued) enqueue('stockinfo', e.uid + ':X', [e.uid + ':X', e.date, sm.name, -sm.qty, sm.unit, '', -e.amount, '', fmtDT(new Date())]);
     db.prepare('delete from stock_moves where expense_id=?').run(e.id);
     db.prepare('delete from oil_changes where expense_id=?').run(e.id);   // oil wali entry hati to woh "oil badla" bhi
     if (e.queued) enqueue('expenses', e.uid + ':X', [e.uid + ':X', e.date, e.category, (e.note || '') + ' (deleted)', -e.amount, fmtDT(new Date())]);
@@ -1719,6 +1749,16 @@ sabziDaily(); setInterval(sabziDaily, 10 * 60 * 1000);
 // Windows: desktop par "Pizza Town" icon na ho to bana do (tray se chalne wale PCs ke liye)
 if (process.platform === 'win32') setTimeout(() => { try { execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Hidden', '-File', path.join(__dirname, 'make-icon.ps1')], { windowsHide: true, timeout: 30000 }, () => {}); } catch (e) {} }, 5000);
 autoLinkResale();
+// Purani "Saman aaya" entries (4 Nov se) aik dafa Daily Stock Entry ke liye bhejna
+function stockInfoBackfill() {
+  if (getSettings().stockinfo_done || !syncOn()) return;
+  const rows = db.prepare(`select s.*,m.qty,m.date,m.created_at mc,e.uid,e.amount from stock_moves m join expenses e on e.id=m.expense_id and e.deleted=0 and e.queued=1
+    join stock_items s on s.id=m.item_id where m.kind='in' order by m.id`).all();
+  db.transaction(() => rows.forEach(r => enqueue('stockinfo', r.uid, stockInfoRow(r.uid, r, r.qty, r.amount, r.date, r.mc || r.date))))();
+  setSetting('stockinfo_done', fmtDT(new Date()));
+  if (rows.length) syncSoon();
+}
+setTimeout(stockInfoBackfill, 30000);
 const server = app.listen(PORT, '0.0.0.0', () => {
   const ips = Object.values(os.networkInterfaces()).flat().filter(i => i.family === 'IPv4' && !i.internal).map(i => i.address);
   console.log(`Pizza Town POS v${PKG.version} chal gaya.`);
