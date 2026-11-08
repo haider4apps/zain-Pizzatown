@@ -110,21 +110,9 @@ async function render(id, opts = {}) {
     if (o.type === 'delivery' && S.print_delivery === '1') html += delivery(o, L);
     document.body.classList.toggle('en', lang === 'en');   // English slip: body bhi English font (Urdu font download na ho)
     document.getElementById('root').innerHTML = html;
-    // Har slip ka kaghaz bilkul utna lamba jitni likhai (Chrome "auto" lambai par printer driver ka poora page le leta tha = neeche khaali jagah)
-    const fitPages = () => {
-      document.querySelectorAll('style[data-fit]').forEach(x => x.remove());
-      const f = document.createElement('style'); f.dataset.fit = '1'; let css = '';
-      document.querySelectorAll('#root .slip').forEach((el, k) => {
-        const mm = Math.ceil((el.getBoundingClientRect().height * 25.4 / 96 + tp + 0.5) * 10) / 10;
-        css += `@page s${k}{size:${w}mm ${mm}mm;margin:0}`; el.style.page = 's' + k;
-      });
-      f.textContent = css; document.head.appendChild(f);
-    };
-    fitPages();
     if (!P.get('preview')) {
       // Urdu font sirf Urdu slip ke liye (English slip par intezar nahi = tez)
       if (lang === 'ur') { try { await document.fonts.load('20px Gulzar', 'آرڈر'); } catch (e) {} await document.fonts.ready; }
-      fitPages();   // font aane ke baad dobara naap
       const t1 = performance.now();
       window.onafterprint = () => { window.onafterprint = null; parent.postMessage({ slipDone: id, load: Math.round(t1 - t0), print: Math.round(performance.now() - t1) }, '*'); };
       setTimeout(() => window.print(), opts.warm ? 50 : 300);
