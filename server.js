@@ -1110,7 +1110,15 @@ admin.put('/stock/items/:id', (req, res) => {
   if (b.min_level !== undefined) db.prepare('update stock_items set min_level=? where id=?').run(Math.max(0, num(b.min_level)), req.params.id);
   if (b.unit) db.prepare('update stock_items set unit=? where id=?').run(String(b.unit).slice(0, 12), req.params.id);
   if (b.alert_days !== undefined) db.prepare('update stock_items set alert_days=? where id=?').run(Math.min(60, Math.max(0, num(b.alert_days))), req.params.id);
-  if (b.paused !== undefined) db.prepare('update stock_items set paused=? where id=?').run(b.paused ? 1 : 0, req.params.id);   // Band / Chalu (Sheet mein alag record nahi)
+  if (b.paused !== undefined) {   // Band / Chalu: Sheet ki stock list mein band saman sab se neeche grey (Events mein aik line + demand line foran)
+    const was = db.prepare('select name,paused from stock_items where id=?').get(req.params.id), on = b.paused ? 1 : 0;
+    db.prepare('update stock_items set paused=? where id=?').run(on, req.params.id);
+    if (was && !!was.paused !== !!on) {
+      if (on) logEvent('stock', `BAND: ${was.name} - band kiya (ab nahi mangwate)`);
+      else { const it = stockList().find(x => x.id === int(req.params.id)); if (it && it.status === 'ok') logEvent('stock', `THEEK: ${it.name} - dobara chalu (${qtyTxtSrv(it)})`); }
+      setTimeout(() => demandToSheet(true), 3000);
+    }
+  }
   if (b.min_level !== undefined || b.alert_days !== undefined || b.paused !== undefined) setImmediate(stockAlertCheck);
   if (b.rate !== undefined) db.prepare('update stock_items set rate=? where id=?').run(Math.max(0, num(b.rate)), req.params.id);
   if (b.pack_size !== undefined && String(b.confirm_pin || '') !== getSettings().admin_pin) return res.status(403).json({ error: 'Pack size badalne ke liye Admin PIN ghalat hai' });
@@ -1263,15 +1271,15 @@ function demandToSheet(force) {
   try {
     const d = computeDemand(3), fmt = n => 'Rs ' + Math.round(n).toLocaleString('en-PK');
     // Har saman aik line: HALAT ; Naam ; Kitne din ka bacha ; Price per pack ; Roz ki khapat  (Sheet mein alag columns)
-    const ORD = { out: 0, low: 1, ok: 2, unset: 3 }, HAL = { out: 'KHATAM', low: 'KAM', ok: 'THEEK', unset: 'STOCK NAHI LIKHA' };
-    const all = stockList().filter(i => i.status !== 'band').sort((a, b) => ORD[a.status] - ORD[b.status] || (a.days ?? 1e9) - (b.days ?? 1e9) || a.name.localeCompare(b.name));
+    const ORD = { out: 0, low: 1, ok: 2, unset: 3, band: 4 }, HAL = { out: 'KHATAM', low: 'KAM', ok: 'THEEK', unset: 'STOCK NAHI LIKHA', band: 'BAND' };   // band saman Sheet ki list mein sab se neeche (grey)
+    const all = stockList().sort((a, b) => ORD[a.status] - ORD[b.status] || (a.days ?? 1e9) - (b.days ?? 1e9) || a.name.localeCompare(b.name));
     const amt = (i, v) => (i.sub_per && Math.abs(v) < 1 ? Math.round(v * i.sub_per) + ' ' + i.sub_unit : (Math.round(v * 100) / 100) + ' ' + i.unit);
     const cell = x => String(x).replace(/[;|]/g, ' ');
     const line = [`${fmt(d.total)} (3 din ka saman, ${d.rows.length} cheezein${d.no_rate.length ? ', ' + d.no_rate.length + ' ka rate nahi' : ''})`]
       .concat(all.map(i => [HAL[i.status], i.name,
-        i.status === 'out' ? 'khatam (0)' : (i.days !== null ? '~' + (Math.round(i.days * 10) / 10) + ' din' : '—') + ' (' + amt(i, i.bal) + ' bacha)',
+        i.status === 'band' ? 'band' : i.status === 'out' ? 'khatam (0)' : (i.days !== null ? '~' + (Math.round(i.days * 10) / 10) + ' din' : '—') + ' (' + amt(i, i.bal) + ' bacha)',
         i.rate ? fmt(i.rate * (i.pack_size || 1)) + ' / ' + (i.pack_size ? (i.pack_name || 'pack') : i.unit) : 'rate nahi',
-        i.per_day ? amt(i, i.per_day) + ' / din' : '—'].map(cell).join(' ; '))).join(' || ');
+        i.status !== 'band' && i.per_day ? amt(i, i.per_day) + ' / din' : '—'].map(cell).join(' ; '))).join(' || ');
     const sig = all.map(i => i.status + ':' + i.name).join(',');   // halat badle to foran, warna ghante mein aik dafa
     if (!force && sig === lastDemandLine && Date.now() - lastDemandAt < 60 * 60 * 1000) return;
     lastDemandLine = sig; lastDemandAt = Date.now();
