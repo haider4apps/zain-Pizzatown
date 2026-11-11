@@ -199,3 +199,7 @@ a.btn{color:inherit}
 #oneBlock small{display:block;color:#999;margin-top:6px}
 
 .btn.stk.fry{background:#e8792b;border-color:#e8792b;color:#fff}.btn.stk.fry b{background:#fff;color:#e8792b}.btn.stk.fry.due{background:#c62828;border-color:#c62828}
+
+/* band kiya hua saman: order screen par sirf ittila */
+.bandnote{background:#3a2e10;color:#f5c04a;border:1px solid #f5c04a;border-radius:10px;padding:8px 10px;font-size:14px;line-height:1.4;margin-bottom:8px}
+.bandnote small{display:block;color:#d8c48a;font-size:12px}

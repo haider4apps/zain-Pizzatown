@@ -27,6 +27,7 @@ $('#tabs').onclick = e => { const b = e.target.closest('button'); if (!b) return
 // Har button par mouse rakhne se us ka maqsad (title)
 const TIPS = {
   '[data-act="cnt"]': 'Ginti: dukaan mein asal kitna pada hai gin kar likhein (pack + khula). Stock seedha us par set ho jata hai.',
+  '#bGo': 'Jo saman ab nahi mangwate use band kar dein: alert, demand aur order ki rok se nikal jata hai. Recipe wahi rehti hai.', '.bOn': 'Ye saman dobara mangwana shuru: wapas stock ki halat, alert aur demand mein aa jayega.',
   '[data-act="alert"]': 'Alert kab: jab stock itne din ka reh jaye to peela alert. Automatic 3 din, har item ke din alag bhi rakh sakte hain.',
   '[data-act="pack"]': 'Pack size: 1 pack mein kitna aata hai. Sirf tab badlein jab company pack badle (Admin PIN).',
   '[data-act="rate"]': 'Rate: 1 pack kitne Rs ka. "Naya saman daalein" mein Rs likhne se khud update hota hai.',
@@ -329,7 +330,7 @@ async function viewExpenses() {
 
 // ---------- stock ----------
 const UNITS = ['kg', 'gram', 'litre', 'piece', 'packet', 'dozen', 'carton', 'bottle'];
-const ST_TXT = { out: ['khatam', '#ffb4a8', '#5a2020'], low: ['kam hai', '#f5c04a', '#4a3a14'], ok: ['theek', '#8fd19e', '#1d3a26'], unset: ['stock nahi likha', '#c9c9c9', '#33363d'] };
+const ST_TXT = { out: ['khatam', '#ffb4a8', '#5a2020'], low: ['kam hai', '#f5c04a', '#4a3a14'], ok: ['theek', '#8fd19e', '#1d3a26'], unset: ['stock nahi likha', '#c9c9c9', '#33363d'], band: ['⏸ band', '#b9bdc6', '#2a2d33'] };
 // g/ml mein dikhana (kg/litre wale saman ki recipe gram mein likhi jati hai)
 const subOf = i => (i && i.sub_per > 0 ? i.sub_per : 0);
 const fmtQ = (i, q) => { const sp = subOf(i); return sp ? `${+(q * sp).toFixed(1)} ${i.sub_unit}` : `${+(+q).toFixed(2)} ${i ? i.unit : ''}`; };
@@ -383,7 +384,8 @@ function packDialog(ds) {
 }
 async function viewStock() {
   const [d, rc] = await Promise.all([A('/stock'), A('/recipes')]);
-  const items = d.items, preps = d.preps || [], all = items.concat(preps), byId = Object.fromEntries(all.map(i => [String(i.id), i]));
+  // band kiya hua saman (ab nahi mangwate) stock ki halat / ginti / naya saman mein nahi aata: sirf neeche apne alag dabbe mein
+  const bandItems = d.items.filter(i => i.paused).sort((a, b) => a.name.localeCompare(b.name)), items = d.items.filter(i => !i.paused), preps = d.preps || [], all = d.items.concat(preps), byId = Object.fromEntries(all.map(i => [String(i.id), i]));
   const opt = items.map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('');
   const cats = [...new Set(rc.variants.map(v => v.cat))];
   const grpOpts = ['Raw saman', 'Packing'].concat(cats).map(c => `<option>${esc(c)}</option>`).join('');
@@ -393,7 +395,7 @@ async function viewStock() {
   const rateTxt = i => (i.rate ? `Rs ${Math.round(i.rate * (i.pack_size || 1))}/${i.pack_size ? (i.pack_name || 'pack') : i.unit}` : 'Rate?');
   const curG = groups.includes(window._sg) ? window._sg : '';   // '' = sab band (dabba dabane par khulta hai)
   // Tarteeb: pehle khatam, phir kam, phir theek (green), aakhir mein jin ka stock likha nahi; har hisse mein jo pehle khatam ho wo upar
-  const SO = { out: 0, low: 1, ok: 2, unset: 3 };
+  const SO = { out: 0, low: 1, ok: 2, unset: 3, band: 4 };   // band kiya hua saman sab se neeche
   const stOrd = (a, b) => SO[a.status] - SO[b.status] || (a.days ?? 1e9) - (b.days ?? 1e9) || a.name.localeCompare(b.name);
   const packTxt = i => (i.pack_size ? `${i.pack_name || 'Pack'} = ${i.pack_size} ${i.unit}` : 'Pack size?');
   view.innerHTML = `
@@ -433,9 +435,13 @@ async function viewStock() {
     <select id="rGrp"><option value="">Group chunein...</option>${cats.map(c => `<option>${esc(c)}</option>`).join('')}</select>
     <select id="rSel" disabled><option value="">Pehle group chunein</option></select>
     <div id="rBox"></div></div>
+  <div class="box" id="bandBox"><b style="color:var(--gold)">⏸ Jo saman ab nahi mangwate (band)</b>
+    <div class="r"><select id="bItem"><option value="">Kaunsa saman band karna hai?</option>${items.filter(i => !i.daily_use).slice().sort((a, b) => a.name.localeCompare(b.name)).map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('')}</select><button class="btn gold s" id="bGo">⏸ Band karein</button></div>
+    <small style="color:var(--mute)">Band saman ka na alert aata hai, na demand slip mein aata hai, na khatam hone par order rokta hai. Order screen par sirf ittila aati hai. Recipe wahi rehti hai. Dobara mangwana ho to neeche "Chalu karein" dabayein.</small>
+    <div class="bandlist">${bandItems.length ? `<b>Abhi band hain (${bandItems.length}):</b>` + bandItems.map(i => `<div class="bandrow"><span>${esc(i.name)} <small>(${esc(i.grp || 'Dusra')})</small></span><button class="btn s bOn" data-id="${i.id}" data-n="${esc(i.name)}">▶ Chalu karein</button></div>`).join('') : '<small style="color:var(--mute)">Abhi koi saman band nahi.</small>'}</div></div>
   ${items.length ? `<div class="box"><b style="color:var(--mute)">Item hatayein</b>
     <div class="r"><select id="dItem"><option value="">Kaunsa item hatana hai?</option>${opt}</select><button class="btn red s" id="dGo">Hatayein</button></div>
-    <small style="color:var(--mute)">Sirf woh item hatayein jo ab dukaan mein nahi rakhte.</small></div>` : ''}
+    <small style="color:var(--mute)">Sirf woh item hatayein jo ab dukaan mein nahi rakhte. Recipe wala saman hat nahi sakta: use upar wale dabbe "Jo saman ab nahi mangwate" se band kar dein.</small></div>` : ''}
   <div class="box" id="mvBox"><b>Akhri entries</b>${d.moves.length > 5 ? sBar('qMv', 'Entry dhoondein (item, date, note)') : ''}<table>${d.moves.map(m => `<tr><td>${m.date}</td><td>${esc(m.name)}</td><td>${m.qty > 0 ? '+' : ''}${+(+m.qty).toFixed(3)} ${m.unit}</td><td style="color:var(--mute)">${m.kind === 'in' ? 'Aaya' : m.kind === 'daily' ? '' : m.note && m.note.startsWith('Fryer') ? '' : 'Ginti'} ${esc(m.note)}</td></tr>`).join('') || '<tr><td style="color:var(--mute)">—</td></tr>'}</table></div>`;
 
   // Recipes final hain: sirf dekh sakte hain, badal nahi sakte (ghalti se chhed-chhaad na ho)
@@ -566,6 +572,13 @@ async function viewStock() {
   const fillQty = () => { const it = byId[$('#iItem').value];
     const n = +$('#iPacks').value; if (it && it.pack_size && n > 0) $('#iQty').value = +(n * it.pack_size).toFixed(3); else if (!$('#iPacks').value) $('#iQty').value = ''; };
   $('#iItem').onchange = () => { $('#iPacks').value = ''; $('#iQty').value = ''; fillQty(); iHint(); }; $('#iPacks').oninput = () => { fillQty(); iHint(); }; $('#iQty').oninput = () => { $('#iPacks').value = ''; iHint(); };
+  $('#bGo').onclick = () => guard(async () => {
+    const id = $('#bItem').value; if (!id) throw new Error('Pehle saman chunein');
+    const it = items.find(x => String(x.id) === id);
+    if (!confirm(`${it.name} ko BAND karein?\n\nMatlab: ye saman ab nahi mangwate.\n• Laal / peela alert nahi aayega\n• Demand slip mein nahi aayega\n• Khatam ho to bhi order nahi rokega\n• Stock ki halat aur Naya saman ki list se hat jayega\n\nRecipe wahi rehti hai. Dobara mangwayein to isi dabbe mein "Chalu karein" dabayein.`)) return;
+    await A('/stock/items/' + id, 'PUT', { paused: 1 }); toast(`${it.name}: band ✓`); viewStock();
+  });
+  view.querySelectorAll('.bOn').forEach(b => { b.onclick = () => guard(async () => { await A('/stock/items/' + b.dataset.id, 'PUT', { paused: 0 }); toast(`${b.dataset.n}: dobara chalu ✓`); viewStock(); }); });
   if ($('#dGo')) $('#dGo').onclick = () => guard(async () => {
     const id = $('#dItem').value; if (!id) throw new Error('Pehle item chunein');
     const it = items.find(x => String(x.id) === id);

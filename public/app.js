@@ -28,7 +28,7 @@ const GRPCOL = ['#f08a4b', '#5fb3e8', '#b88cf0', '#7bd88f', '#f06292', '#e8b94c'
 const PALETTE = ['#f5c542', '#ef5350', '#ff9800', '#26a69a', '#8bc34a', '#ba68c8', '#42a5f5', '#26c6da', '#f06292', '#a1887f'];
 const catColor = id => { const i = menu.findIndex(c => c.id === id); return PALETTE[(i < 0 ? 0 : i) % PALETTE.length]; };
 // ---------------- stock alerts ----------------
-let STOCK = { alerts: [], variants: {} };
+let STOCK = { alerts: [], variants: {}, band: {} };
 async function loadStock() {
   try { STOCK = await api('/api/stock/alerts'); } catch (e) { return; }
   // Upar 2 button: laal = khatam, peela = kam (gin ke). Dabane par list popup mein
@@ -240,6 +240,18 @@ function pzPick(l, s) {
 }
 const pzSend = l => (l.pz ? l.pz.s.map(s => (l.pz.deal ? { vid: s.vid, top: s.top || 0 } : { top: s.top || 0 })) : undefined);
 const cartTotal = () => cart.reduce((s, l) => s + lineAmt(l), 0);
+// Band saman jo is cart mein lagta hai. Packing (dabba, food bag...) sirf Takeaway/Delivery par lagti hai: Dine-in par us ka zikr nahi
+function cartBand() {
+  const B = STOCK.band || {}, away = !!(co && co.type && co.type !== 'dinein'), set = new Set();
+  const add = vid => (B[vid] || []).forEach(([n, a]) => { if (!a || away) set.add(n); });
+  cart.forEach(l => { add(l.variant_id); if (l.pz && l.pz.deal) l.pz.s.forEach(s => add(s.vid)); });
+  return [...set].sort();
+}
+function showCartBand() {
+  const bn = cartBand(), bb = $('#cartBand');
+  if (bb) { bb.hidden = !bn.length; bb.innerHTML = bn.length ? `⏸ Is order mein <b>${bn.length}</b> band kiya hua saman: <b>${bn.map(esc).join(', ')}</b><small>Sirf ittila hai, order lag jayega.</small>` : ''; }
+  return bn;
+}
 function renderCart() {
   const body = $('#cartBody'); body.innerHTML = '';
   if (editing) {
@@ -262,6 +274,8 @@ function renderCart() {
     pzDecorate(d, l);
     body.appendChild(d);
   });
+  // Band kiya hua saman (ab nahi mangwate) is order mein lagta ho to sirf ittila: order lag jata hai
+  showCartBand();
   const n = cart.reduce((s, l) => s + l.qty, 0);
   $('#cartCount').textContent = n ? `(${n} items)` : '';
   $('#cartTotal').textContent = money(cartTotal());
@@ -296,7 +310,8 @@ function renderCheckout() {
   const sh = $('#coSheet');
   const dEn = settings.delivery_charge_enabled === '1', sEn = settings.service_charge_enabled === '1';
   const svcLabel = settings.service_charge_type === 'percent' ? `${settings.service_charge_value}%` : `Rs ${settings.service_charge_value}`;
-  sh.innerHTML = `<h3>${editing ? 'Order #' + editing.order_no + ' badlein' : 'Checkout'}</h3>
+  const bn = showCartBand();
+  sh.innerHTML = `<h3>${editing ? 'Order #' + editing.order_no + ' badlein' : 'Checkout'}</h3>${bn.length ? `<div class="bandnote">⏸ Band kiya hua saman: <b>${bn.map(esc).join(', ')}</b><small>Sirf ittila hai, order lag jayega.</small></div>` : ''}
   <div class="seg" id="typeSeg">${Object.entries(TYPES).map(([k, v]) => `<button data-t="${k}" class="${co.type === k ? 'on' : ''}">${v}</button>`).join('')}</div>
   ${co.type === 'dinein' ? `<div class="f"><label>Table number</label><div class="tbls" id="tbls">${Array.from({ length: Math.min(40, Math.max(1, parseInt(settings.dine_tables) || 6)) }, (_, i) => `<button type="button" data-tb="${i + 1}" class="${String(co.table_no) === String(i + 1) ? 'on' : ''}">${i + 1}</button>`).join('')}</div></div>` : ''}
   ${co.type === 'delivery' ? `

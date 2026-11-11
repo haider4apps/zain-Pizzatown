@@ -101,6 +101,7 @@ const FRY_ITEMS = ['Wings', 'Boneless Thai', 'Fries', 'Nuggets', 'Zestful Chicke
 let FRIED = null;
 const dayDiff = (a, b) => Math.round((new Date(b + 'T12:00:00Z') - new Date(a + 'T12:00:00Z')) / 864e5);
 const addDays = (d, n) => { const x = new Date(d + 'T12:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+addCol('stock_items', 'paused', 'integer default 0');       // 1 = ye saman ab nahi mangwate: alert / demand / order rok se bahar (recipe wahi rehti hai)
 addCol('stock_items', 'daily_use', 'real default 0');     // roz ka tay kharch (sabzi): recipe nahi, har din khud minus
 db.exec('create table if not exists oil_changes(id integer primary key, date text not null, litres real default 16, note text default \'\', created_at text)');
 addCol('oil_changes', 'expense_id', 'integer');
@@ -372,7 +373,7 @@ const BK_TABLES = {
   categories: ['id', 'name', 'name_ur', 'sort', 'active', 'deleted'],
   items: ['id', 'category_id', 'name', 'name_ur', 'grp', 'details', 'sort', 'active', 'deleted'],
   variants: ['id', 'item_id', 'label', 'price', 'cost', 'sort', 'active', 'deleted'],
-  stock_items: ['id', 'name', 'unit', 'min_level', 'active', 'grp', 'sub_unit', 'sub_per', 'pack_size', 'pack_name', 'is_prep', 'prep_yield', 'rate', 'daily_use', 'alert_days', 'created_at'],
+  stock_items: ['id', 'name', 'unit', 'min_level', 'active', 'grp', 'sub_unit', 'sub_per', 'pack_size', 'pack_name', 'is_prep', 'prep_yield', 'rate', 'daily_use', 'alert_days', 'paused', 'created_at'],
   recipes: ['variant_id', 'item_id', 'qty', 'away'],
   prep_recipes: ['prep_id', 'item_id', 'qty'],
   deal_parts: ['id', 'variant_id', 'part_vid', 'qty', 'slot'],
@@ -572,7 +573,8 @@ function stockList() {
       oil = oilStatus();
       if (oil.remain <= 1 && b < oil.litres + (perDay || 0) && status !== 'out' && status !== 'unset') status = 'low';
     }
-    return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status,
+    if (i.paused) status = 'band';   // band kiya hua saman: na alert, na demand, na order rokta hai
+    return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status, paused: i.paused ? 1 : 0,
       alert_days: aDays, alert_auto: !(i.alert_days > 0), auto_days: alertDays, daily_use: i.daily_use || 0, oil,
       sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0 };
   });
@@ -634,14 +636,30 @@ function stockBlockers(lines) {
   const need = essentialNeed(lines);
   Object.entries(need).forEach(([n, q]) => {
     if (n === 'Cheese') {
-      const cs = CHEESE.map(c => by[c]).filter(Boolean); if (!cs.length || cs.every(c => c.status === 'unset')) return;
+      const cs = CHEESE.map(c => by[c]).filter(c => c && c.status !== 'band'); if (!cs.length || cs.every(c => c.status === 'unset')) return;
       const bal = cs.reduce((t, c) => t + Math.max(0, c.bal), 0);
       if (bal + 1e-9 < q) out.push({ name: 'Cheese (Top Cow + Shredded)', bal: r2(bal * 1000), need: r2(q * 1000), unit: 'g' });
       return;
     }
-    const i = by[n]; if (!i || i.status === 'unset') return;
+    const i = by[n]; if (!i || i.status === 'unset' || i.status === 'band') return;
     if (Math.max(0, i.bal) + 1e-9 < q) out.push({ name: i.name, bal: i.sub_per ? r2(i.bal * i.sub_per) : r2(i.bal), need: i.sub_per ? r2(q * i.sub_per) : r2(q), unit: i.sub_per ? i.sub_unit : i.unit });
   });
+  return out;
+}
+// Band kiya hua saman: kis menu item (variant) ki recipe mein lagta hai -> { vid: [[naam, sirfTakeaway]] }. Deal ke tay hisse shamil; chuna hua pizza flavour POS khud jorta hai
+function bandByVariant() {
+  const band = Object.fromEntries(db.prepare('select id,name from stock_items where active=1 and paused=1').all().map(i => [i.id, i.name]));
+  const out = {}; if (!Object.keys(band).length) return out;
+  const prepOf = {};
+  db.prepare('select p.prep_id,p.item_id from prep_recipes p').all().forEach(p => { if (band[p.item_id]) (prepOf[p.prep_id] = prepOf[p.prep_id] || []).push(band[p.item_id]); });
+  const own = {};   // vid -> { naam: 1 agar sirf takeaway/delivery par lagta hai (packing), warna 0 }
+  db.prepare('select variant_id v,item_id i,away a from recipes').all().forEach(r => {
+    const names = band[r.i] ? [band[r.i]] : prepOf[r.i] || [];
+    names.forEach(n => { const o = own[r.v] = own[r.v] || {}; o[n] = n in o ? (o[n] && r.a ? 1 : 0) : (r.a ? 1 : 0); }); });
+  const parts = {};
+  db.prepare("select variant_id v,part_vid p from deal_parts where coalesce(slot,'')=''").all().forEach(r => { (parts[r.v] = parts[r.v] || []).push(r.p); });
+  const walk = (vid, acc, depth) => { if (depth > 3) return; Object.entries(own[vid] || {}).forEach(([n, a]) => { acc[n] = n in acc ? (acc[n] && a ? 1 : 0) : a; }); (parts[vid] || []).forEach(p => walk(p, acc, depth + 1)); };
+  db.prepare('select id from variants where active=1 and deleted=0').all().forEach(({ id }) => { const acc = {}; walk(id, acc, 0); const e = Object.entries(acc).sort((a, b) => a[0].localeCompare(b[0])); if (e.length) out[id] = e; });
   return out;
 }
 const qtyTxtSrv = i => (i.sub_per && Math.abs(i.bal) < 1 ? `${Math.round(i.bal * i.sub_per)} ${i.sub_unit}` : `${+(+i.bal).toFixed(2)} ${i.unit}`);
@@ -658,9 +676,9 @@ app.get('/api/stock/alerts', (req, res) => {
       if (low) variants[id] = { status: 'low', name: low.name, bal: low.bal, unit: low.unit, days: low.days };
     });
     const os = oilStatus(); const oilIt = list.find(i => i.name === OIL_NAME) || {};
-    const oil = os.last && os.remain <= 1 ? { remain: os.remain, next: os.next, day: os.day, fried: os.fried, litres: os.litres, last: os.last, bal: oilIt.bal || 0, unit: oilIt.unit || '' } : null;
-    res.json({ alerts, variants, oil });
-  } catch (e) { res.json({ alerts: [], variants: {} }); }
+    const oil = oilIt.status !== 'band' && os.last && os.remain <= 1 ? { remain: os.remain, next: os.next, day: os.day, fried: os.fried, litres: os.litres, last: os.last, bal: oilIt.bal || 0, unit: oilIt.unit || '' } : null;
+    res.json({ alerts, variants, oil, band: bandByVariant() });
+  } catch (e) { res.json({ alerts: [], variants: {}, band: {} }); }
 });
 app.post('/api/stock/override', (req, res) => {
   logEvent('stock', `Khatam stock par bhi order liya: ${String((req.body || {}).name || '').slice(0, 120)}`);
@@ -1090,7 +1108,8 @@ admin.put('/stock/items/:id', (req, res) => {
   if (b.min_level !== undefined) db.prepare('update stock_items set min_level=? where id=?').run(Math.max(0, num(b.min_level)), req.params.id);
   if (b.unit) db.prepare('update stock_items set unit=? where id=?').run(String(b.unit).slice(0, 12), req.params.id);
   if (b.alert_days !== undefined) db.prepare('update stock_items set alert_days=? where id=?').run(Math.min(60, Math.max(0, num(b.alert_days))), req.params.id);
-  if (b.min_level !== undefined || b.alert_days !== undefined) setImmediate(stockAlertCheck);
+  if (b.paused !== undefined) db.prepare('update stock_items set paused=? where id=?').run(b.paused ? 1 : 0, req.params.id);   // Band / Chalu (Sheet mein alag record nahi)
+  if (b.min_level !== undefined || b.alert_days !== undefined || b.paused !== undefined) setImmediate(stockAlertCheck);
   if (b.rate !== undefined) db.prepare('update stock_items set rate=? where id=?').run(Math.max(0, num(b.rate)), req.params.id);
   if (b.pack_size !== undefined && String(b.confirm_pin || '') !== getSettings().admin_pin) return res.status(403).json({ error: 'Pack size badalne ke liye Admin PIN ghalat hai' });
   if (b.pack_size !== undefined) db.prepare('update stock_items set pack_size=?, pack_name=? where id=?').run(Math.max(0, num(b.pack_size)), String(b.pack_name || '').slice(0, 30), req.params.id);
@@ -1098,7 +1117,7 @@ admin.put('/stock/items/:id', (req, res) => {
 });
 admin.delete('/stock/items/:id', (req, res) => {
   const used = db.prepare('select (select count(*) from recipes where item_id=?) + (select count(*) from prep_recipes where item_id=?) n').get(req.params.id, req.params.id).n;
-  if (used) return res.status(400).json({ error: 'Ye saman recipes mein istemal hota hai, hataya nahi ja sakta' });
+  if (used) return res.status(400).json({ error: 'Ye saman recipes mein istemal hota hai, hataya nahi ja sakta. Ab nahi mangwate to "Jo saman ab nahi mangwate" wale dabbe se band kar dein.' });
   db.prepare('update stock_items set active=0 where id=?').run(req.params.id);
   db.prepare('delete from recipes where item_id=?').run(req.params.id);
   res.json({ ok: true });
@@ -1215,6 +1234,7 @@ admin.post('/stock/from-menu', (req, res) => {
 function computeDemand(days) {
   const bd = businessDate(), U = dailyUsage(), nDays = U.days, rows = [], unset = [];
   stockList().forEach(i => {
+    if (i.status === 'band') return;   // band saman demand mein nahi
     const perDay = U.map[i.id] || 0, bal = Math.max(0, i.bal);
     if (i.status === 'unset' && !(i.daily_use > 0)) { if (perDay > 0) unset.push(i.name); return; }   // ginti hi nahi hui: andaza ghalat hoga, pehle ginti
     let need = perDay * days - bal;
@@ -1242,7 +1262,7 @@ function demandToSheet(force) {
     const d = computeDemand(3), fmt = n => 'Rs ' + Math.round(n).toLocaleString('en-PK');
     // Har saman aik line: HALAT ; Naam ; Kitne din ka bacha ; Price per pack ; Roz ki khapat  (Sheet mein alag columns)
     const ORD = { out: 0, low: 1, ok: 2, unset: 3 }, HAL = { out: 'KHATAM', low: 'KAM', ok: 'THEEK', unset: 'STOCK NAHI LIKHA' };
-    const all = stockList().sort((a, b) => ORD[a.status] - ORD[b.status] || (a.days ?? 1e9) - (b.days ?? 1e9) || a.name.localeCompare(b.name));
+    const all = stockList().filter(i => i.status !== 'band').sort((a, b) => ORD[a.status] - ORD[b.status] || (a.days ?? 1e9) - (b.days ?? 1e9) || a.name.localeCompare(b.name));
     const amt = (i, v) => (i.sub_per && Math.abs(v) < 1 ? Math.round(v * i.sub_per) + ' ' + i.sub_unit : (Math.round(v * 100) / 100) + ' ' + i.unit);
     const cell = x => String(x).replace(/[;|]/g, ' ');
     const line = [`${fmt(d.total)} (3 din ka saman, ${d.rows.length} cheezein${d.no_rate.length ? ', ' + d.no_rate.length + ' ka rate nahi' : ''})`]
@@ -1352,7 +1372,7 @@ admin.get('/report', (req, res) => {
   const dayList = Object.values(days).sort((a, b) => (a.d < b.d ? 1 : -1)).map(x => ({ ...x, net: x.profit - x.expenses }));
   res.json({
     from, to, now: businessDate(), totals, days: dayList,
-    missing_cost: db.prepare('select count(*) n from stock_items s where s.active=1 and s.is_prep=0 and coalesce(s.rate,0)<=0 and (s.id in (select item_id from recipes) or s.id in (select item_id from prep_recipes))').get().n,
+    missing_cost: db.prepare('select count(*) n from stock_items s where s.active=1 and s.is_prep=0 and coalesce(s.paused,0)=0 and coalesce(s.rate,0)<=0 and (s.id in (select item_id from recipes) or s.id in (select item_id from prep_recipes))').get().n,
     by_type: db.prepare(`select type, count(*) n, sum(total) total, sum(profit) profit from orders where ${W} group by type`).all(...A),
     gifts: db.prepare(`select coalesce(gift_by,'-') by_whom, count(*) n, sum(subtotal) value, sum(cost) cost from orders where ${W} and payment='Gift' group by gift_by`).all(...A),
     by_payment: db.prepare(`select payment, count(*) n, sum(total) total from orders where ${W} group by payment`).all(...A),
