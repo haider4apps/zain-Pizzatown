@@ -55,7 +55,33 @@ window._q = window._q || {};
 const sNorm = s => String(s || '').toLowerCase().replace(/\s+/g, ' ').trim();
 // "L" likha ho to "large" se bhi mile (M = medium, S = small)
 const sSize = t => { t = ' ' + sNorm(t).replace(/[()·,]/g, ' ') + ' '; return t + (/ l /.test(t) ? ' large' : '') + (/ m /.test(t) ? ' medium' : '') + (/ s /.test(t) ? ' small' : ''); };
-const sBar = (id, ph) => `<div class="sbar"><input type="search" id="${id}" placeholder="🔍 ${esc(ph)}" autocomplete="off" value="${esc(window._q[id] || '')}"><small class="sc"></small></div>`;
+const sBar = (id, ph) => `<div class="sbar"><span class="sin"><input type="search" id="${id}" placeholder="🔍 ${esc(ph)}" autocomplete="off" value="${esc(window._q[id] || '')}"><button type="button" class="sx" title="Search saaf karein"${window._q[id] ? '' : ' hidden'}>✕</button></span><small class="sc"></small></div>`;
+// Har search box ke andar ✕: likha ho to dikhe, dabane par box khali aur poori list wapas
+document.addEventListener('input', e => { const x = e.target.matches && e.target.matches('.sbar input') && e.target.parentElement.querySelector('.sx'); if (x) x.hidden = !e.target.value; });
+document.addEventListener('click', e => { const x = e.target.closest && e.target.closest('.sbar .sx'); if (!x) return; const i = x.parentElement.querySelector('input'); i.value = ''; i.dispatchEvent(new Event('input', { bubbles: true })); i.focus(); });
+// Search box + dropdown: type karte hi wohi dropdown lambi list ban kar khul jata hai (Naya saman ki tarah); click / Enter se chunein
+function pickSearch(qId, selId) {
+  const q = $('#' + qId), s = $('#' + selId); if (!q || !s) return;
+  const close = () => { s.size = 0; s.classList.remove('open'); s.options[0].hidden = false; };
+  const visible = () => [...s.options].filter(o => o.value && o.style.display !== 'none');
+  liveFilter(qId, () => [...s.options].filter(o => o.value), { textOf: o => o.textContent, after: on => {
+    const vis = visible();
+    if (on && vis.length === 1) s.value = vis[0].value; else if (on && s.value && !vis.some(o => o.value === s.value)) s.value = '';
+    if ((document.activeElement !== q && document.activeElement !== s) || !q.value.trim() || !vis.length) return close();
+    s.options[0].hidden = true; s.size = Math.max(2, Math.min(10, vis.length)); s.classList.add('open');
+  } });
+  const pick = () => { if (s.value) close(); };
+  s.addEventListener('click', e => { if (s.size > 1 && e.target.tagName === 'OPTION') pick(); });
+  s.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); pick(); } else if (e.key === 'Escape') close(); });
+  q.addEventListener('keydown', e => {
+    if (s.size <= 1) return; const vis = visible();
+    if (e.key === 'ArrowDown') { e.preventDefault(); if (!s.value && vis[0]) s.value = vis[0].value; s.focus(); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (!s.value && vis[0]) s.value = vis[0].value; pick(); }
+    else if (e.key === 'Escape') close();
+  });
+  q.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== s) close(); }, 200));
+  s.addEventListener('blur', () => setTimeout(() => { if (document.activeElement !== q) close(); }, 200));
+}
 // rows: function jo filter hone wali rows de. textOf: kis text mein dhoondna hai (default pehla khana)
 // Group heading rows (class "gh") khud chhup jati hain agar un ke neeche kuch na bache
 function liveFilter(id, rows, { textOf, after } = {}) {
@@ -75,7 +101,7 @@ function liveFilter(id, rows, { textOf, after } = {}) {
       while (n && !n.classList.contains('gh')) { if (n.style.display !== 'none') { any = true; break; } n = n.nextElementSibling; }
       h.style.display = !words.length || any ? '' : 'none';
     });
-    const sc = inp.parentElement.querySelector('.sc');
+    const sc = inp.closest('.sbar').querySelector('.sc');
     if (sc) sc.textContent = words.length ? (shown ? `${shown} / ${total} mile` : 'Kuch nahi mila') : '';
     if (after) after(words.length > 0);
   };
@@ -142,7 +168,7 @@ async function viewMenu() {
     const words = sNorm($('#qMenu').value).split(' ').filter(Boolean), hb = $('#mHits');
     const hits = on ? menu.filter(m => m.id !== catId).flatMap(m => m.items.filter(i => { const t = sSize(m.name + ' ' + i.name + ' ' + (i.grp || '') + ' ' + i.variants.map(v => v.label).join(' ')); return words.every(w => t.includes(w)); }).map(i => ({ m, i }))) : [];
     hb.innerHTML = hits.length ? `<small style="color:var(--mute);width:100%">Doosre sections mein bhi mila (dabayein):</small>` + hits.slice(0, 30).map(h => `<button class="btn s" data-goc="${h.m.id}">${esc(h.m.name)} › ${esc(h.i.name)}</button>`).join('') : '';
-    const sc = $('#qMenu').parentElement.querySelector('.sc'); if (hits.length && sc.textContent === 'Kuch nahi mila') sc.textContent = 'Is section mein nahi';
+    const sc = $('#qMenu').closest('.sbar').querySelector('.sc'); if (hits.length && sc.textContent === 'Kuch nahi mila') sc.textContent = 'Is section mein nahi';
     hb.style.justifyContent = 'flex-start';
     hb.querySelectorAll('[data-goc]').forEach(b => (b.onclick = () => { catId = +b.dataset.goc; viewMenu(); }));
   } });
@@ -436,10 +462,12 @@ async function viewStock() {
     <select id="rSel" disabled><option value="">Pehle group chunein</option></select>
     <div id="rBox"></div></div>
   <div class="box" id="bandBox"><b style="color:var(--gold)">⏸ Jo saman ab nahi mangwate (band)</b>
+    ${sBar('qBand', 'Saman ka naam likhna shuru karein, list khud khul jayegi')}
     <div class="r"><select id="bItem"><option value="">Kaunsa saman band karna hai?</option>${items.filter(i => !i.daily_use).slice().sort((a, b) => a.name.localeCompare(b.name)).map(i => `<option value="${i.id}">${esc(i.name)} (${i.unit})</option>`).join('')}</select><button class="btn gold s" id="bGo">⏸ Band karein</button></div>
     <small style="color:var(--mute)">Band saman ka na alert aata hai, na demand slip mein aata hai, na khatam hone par order rokta hai. Order screen par sirf ittila aati hai. Recipe wahi rehti hai. Dobara mangwana ho to neeche "Chalu karein" dabayein.</small>
     <div class="bandlist">${bandItems.length ? `<b>Abhi band hain (${bandItems.length}):</b>` + bandItems.map(i => `<div class="bandrow"><span>${esc(i.name)} <small>(${esc(i.grp || 'Dusra')})</small></span><button class="btn s bOn" data-id="${i.id}" data-n="${esc(i.name)}">▶ Chalu karein</button></div>`).join('') : '<small style="color:var(--mute)">Abhi koi saman band nahi.</small>'}</div></div>
   ${items.length ? `<div class="box"><b style="color:var(--mute)">Item hatayein</b>
+    ${sBar('qDel', 'Item ka naam likhna shuru karein, list khud khul jayegi')}
     <div class="r"><select id="dItem"><option value="">Kaunsa item hatana hai?</option>${opt}</select><button class="btn red s" id="dGo">Hatayein</button></div>
     <small style="color:var(--mute)">Sirf woh item hatayein jo ab dukaan mein nahi rakhte. Recipe wala saman hat nahi sakta: use upar wale dabbe "Jo saman ab nahi mangwate" se band kar dein.</small></div>` : ''}
   <div class="box" id="mvBox"><b>Akhri entries</b>${d.moves.length > 5 ? sBar('qMv', 'Entry dhoondein (item, date, note)') : ''}<table>${d.moves.map(m => `<tr><td>${m.date}</td><td>${esc(m.name)}</td><td>${m.qty > 0 ? '+' : ''}${+(+m.qty).toFixed(3)} ${m.unit}</td><td style="color:var(--mute)">${m.kind === 'in' ? 'Aaya' : m.kind === 'daily' ? '' : m.note && m.note.startsWith('Fryer') ? '' : 'Ginti'} ${esc(m.note)}</td></tr>`).join('') || '<tr><td style="color:var(--mute)">—</td></tr>'}</table></div>`;
@@ -548,7 +576,7 @@ async function viewStock() {
   } });
   // Type karte hi wohi "Kya aaya?" dropdown khud khula (lambi list ki shakal mein) dikhe; click / Enter se chunein, phir band
   function sel() { return $('#iItem'); }
-  function closeSel() { sel().size = 0; sel().classList.remove('open'); sel().options[0].hidden = false; }
+  function closeSel() { if (!sel()) return; sel().size = 0; sel().classList.remove('open'); sel().options[0].hidden = false; }
   function showSug(vis) {
     if (document.activeElement !== $('#qIn') && document.activeElement !== sel()) return closeSel();
     if (!$('#qIn').value.trim() || !vis.length) return closeSel();
@@ -572,17 +600,18 @@ async function viewStock() {
   const fillQty = () => { const it = byId[$('#iItem').value];
     const n = +$('#iPacks').value; if (it && it.pack_size && n > 0) $('#iQty').value = +(n * it.pack_size).toFixed(3); else if (!$('#iPacks').value) $('#iQty').value = ''; };
   $('#iItem').onchange = () => { $('#iPacks').value = ''; $('#iQty').value = ''; fillQty(); iHint(); }; $('#iPacks').oninput = () => { fillQty(); iHint(); }; $('#iQty').oninput = () => { $('#iPacks').value = ''; iHint(); };
+  pickSearch('qBand', 'bItem'); pickSearch('qDel', 'dItem');
   $('#bGo').onclick = () => guard(async () => {
     const id = $('#bItem').value; if (!id) throw new Error('Pehle saman chunein');
     const it = items.find(x => String(x.id) === id);
     if (!confirm(`${it.name} ko BAND karein?\n\nMatlab: ye saman ab nahi mangwate.\n• Laal / peela alert nahi aayega\n• Demand slip mein nahi aayega\n• Khatam ho to bhi order nahi rokega\n• Stock ki halat aur Naya saman ki list se hat jayega\n\nRecipe wahi rehti hai. Dobara mangwayein to isi dabbe mein "Chalu karein" dabayein.`)) return;
-    await A('/stock/items/' + id, 'PUT', { paused: 1 }); toast(`${it.name}: band ✓`); viewStock();
+    await A('/stock/items/' + id, 'PUT', { paused: 1 }); toast(`${it.name}: band ✓`); window._q.qBand = ''; viewStock();
   });
   view.querySelectorAll('.bOn').forEach(b => { b.onclick = () => guard(async () => { await A('/stock/items/' + b.dataset.id, 'PUT', { paused: 0 }); toast(`${b.dataset.n}: dobara chalu ✓`); viewStock(); }); });
   if ($('#dGo')) $('#dGo').onclick = () => guard(async () => {
     const id = $('#dItem').value; if (!id) throw new Error('Pehle item chunein');
     const it = items.find(x => String(x.id) === id);
-    if (confirm(`${it.name} (bacha ${it.bal} ${it.unit}) stock list se hata dein?`)) { await A('/stock/items/' + id, 'DELETE'); toast('Hata diya'); viewStock(); }
+    if (confirm(`${it.name} (bacha ${it.bal} ${it.unit}) stock list se hata dein?`)) { await A('/stock/items/' + id, 'DELETE'); toast('Hata diya'); window._q.qDel = ''; viewStock(); }
   });
   // Naya saman: pehle neeche list (draft) mein judta hai, sab dekh kar aik dafa "Save". Draft PC par mehfooz rehta hai (page badle to bhi)
   const DK = 'stockDraft';
@@ -641,7 +670,7 @@ async function viewStock() {
   // Recipe search: saare groups mein se milte items list mein; aik hi mile to seedha khul jaye
   const rFind = () => {
     const words = sNorm($('#qRc').value).split(' ').filter(Boolean); window._q.qRc = $('#qRc').value;
-    const sc = $('#qRc').parentElement.querySelector('.sc'), sel = $('#rSel');
+    const sc = $('#qRc').closest('.sbar').querySelector('.sc'), sel = $('#rSel');
     if (!words.length) { sc.textContent = ''; if (!$('#rGrp').value) { sel.disabled = true; sel.innerHTML = '<option value="">Pehle group chunein</option>'; $('#rBox').innerHTML = ''; } return; }
     const hit = rc.variants.filter(v => words.every(w => sSize(v.cat + ' ' + v.name + ' ' + (v.label || '')).includes(w)));
     $('#rGrp').value = ''; sc.textContent = hit.length ? hit.length + ' mile' : 'Kuch nahi mila';

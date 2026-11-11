@@ -570,13 +570,13 @@ function stockList() {
     const aDays = i.alert_days > 0 ? i.alert_days : alertDays;   // is item ka alert: apne din ya automatic
     if (status === 'ok' && ((i.min_level > 0 && b <= i.min_level) || (days !== null && days <= aDays))) status = 'low';   // itne din ya kam ka stock = peela
     if (i.daily_use > 0) status = 'ok';   // sabzi roz aati hai, us par alert nahi (demand mein khud aati hai)
-    let oil = null;
+    let oil = null; const base = status;   // base = fryer ke baghair halat (dough waghera ki khapat se)
     if (i.name === OIL_NAME) {   // fryer: badalne ka din qareeb ho aur stock mein 16 na hon to alert
-      oil = oilStatus();
-      if (oil.remain <= 1 && b < oil.litres + (perDay || 0) && status !== 'out' && status !== 'unset') status = 'low';
+      oil = oilStatus(); oil.short = !!(oil.last && oil.remain <= 1 && b < oil.litres + (perDay || 0));   // fryer ke liye oil kam hai
+      if (oil.short && status !== 'out' && status !== 'unset') status = 'low';
     }
     if (i.paused) status = 'band';   // band kiya hua saman: na alert, na demand, na order rokta hai
-    return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status, paused: i.paused ? 1 : 0,
+    return { id: i.id, name: i.name, grp: i.grp || '', unit: i.unit, min_level: i.min_level, bal: b, per_day: perDay, days, status, base_status: i.paused ? 'band' : base, paused: i.paused ? 1 : 0,
       alert_days: aDays, alert_auto: !(i.alert_days > 0), auto_days: alertDays, daily_use: i.daily_use || 0, oil,
       sub_unit: i.sub_unit || '', sub_per: i.sub_per || 0, pack_size: i.pack_size || 0, pack_name: i.pack_name || '', rate: i.rate || 0 };
   });
@@ -592,6 +592,7 @@ function stockAlertCheck() {
       set.run(now, i.id);
       const q = qtyTxtSrv(i);
       if (now === 'out') logEvent('stock', `KHATAM: ${i.name} - stock khatam (${q})`);
+      else if (now === 'low' && i.oil && i.oil.short && i.base_status === 'ok') logEvent('stock', `KAM: ${i.name} (fryer) - fryer badalna qareeb, ${i.oil.litres} chahiye (${q} bacha)`);
       else if (now === 'low') logEvent('stock', `KAM: ${i.name} - sirf ${q} bacha${i.days !== null ? ' (~' + Math.max(0, Math.floor(i.days)) + ' din)' : ''}`);
       else if (i.status === 'ok' && was) logEvent('stock', `THEEK: ${i.name} - stock aa gaya (${q})`);
       changed = true;
@@ -1270,16 +1271,29 @@ let lastDemandLine = '', lastDemandAt = 0;
 function demandToSheet(force) {
   try {
     const d = computeDemand(3), fmt = n => 'Rs ' + Math.round(n).toLocaleString('en-PK');
-    // Har saman aik line: HALAT ; Naam ; Kitne din ka bacha ; Price per pack ; Roz ki khapat  (Sheet mein alag columns)
     const ORD = { out: 0, low: 1, ok: 2, unset: 3, band: 4 }, HAL = { out: 'KHATAM', low: 'KAM', ok: 'THEEK', unset: 'STOCK NAHI LIKHA', band: 'BAND' };   // band saman Sheet ki list mein sab se neeche (grey)
-    const all = stockList().sort((a, b) => ORD[a.status] - ORD[b.status] || (a.days ?? 1e9) - (b.days ?? 1e9) || a.name.localeCompare(b.name));
+    // Har saman aik line: HALAT ; Naam ; Kitne din ka bacha ; Price per pack ; Roz ki khapat ; Wajah  (Sheet mein alag columns)
+    // Oil do lines: "Oil" (dough waghera ki khapat) aur "Oil (fryer)" (fryer badalne ka alert) - dono aik hi stock se
+    const rows = [];
+    stockList().forEach(i => {
+      if (i.oil && i.oil.last && i.status !== 'band' && i.status !== 'unset') {
+        rows.push({ ...i, status: i.base_status });
+        rows.push({ ...i, fry: 1, name: i.name + ' (fryer)', status: i.oil.short ? (i.bal <= 0 ? 'out' : 'low') : 'ok', days: Math.max(0, i.oil.remain) });
+      } else rows.push(i);
+    });
+    const all = rows.sort((a, b) => ORD[a.status] - ORD[b.status] || (a.days ?? 1e9) - (b.days ?? 1e9) || a.name.localeCompare(b.name));
     const amt = (i, v) => (i.sub_per && Math.abs(v) < 1 ? Math.round(v * i.sub_per) + ' ' + i.sub_unit : (Math.round(v * 100) / 100) + ' ' + i.unit);
     const cell = x => String(x).replace(/[;|]/g, ' ');
+    const left = i => i.status === 'band' ? 'band' : i.fry ? (i.oil.short ? `badalna ~${i.oil.next}` : `~${Math.max(0, i.oil.remain)} din mein badalna`) + ' (' + amt(i, i.bal) + ' bacha)'
+      : i.status === 'out' ? 'khatam (0)' : (i.days !== null ? '~' + (Math.round(i.days * 10) / 10) + ' din' : '—') + ' (' + amt(i, i.bal) + ' bacha)';
+    const why = i => i.status === 'band' ? 'ab nahi mangwate' : i.status === 'unset' ? 'stock kabhi likha nahi gaya'
+      : i.fry ? (i.oil.short ? `fryer badalne ke liye ${i.oil.litres} chahiye, stock mein kam` : '—')
+      : i.status === 'out' ? 'stock khatam'
+      : i.status === 'low' ? (i.min_level > 0 && i.bal <= i.min_level ? `kam az kam had (${amt(i, i.min_level)}) se neeche` : `sirf ~${i.days !== null ? Math.round(i.days * 10) / 10 : 0} din ka bacha (alert ${i.alert_days} din par)`) : '—';
     const line = [`${fmt(d.total)} (3 din ka saman, ${d.rows.length} cheezein${d.no_rate.length ? ', ' + d.no_rate.length + ' ka rate nahi' : ''})`]
-      .concat(all.map(i => [HAL[i.status], i.name,
-        i.status === 'band' ? 'band' : i.status === 'out' ? 'khatam (0)' : (i.days !== null ? '~' + (Math.round(i.days * 10) / 10) + ' din' : '—') + ' (' + amt(i, i.bal) + ' bacha)',
+      .concat(all.map(i => [HAL[i.status], i.name, left(i),
         i.rate ? fmt(i.rate * (i.pack_size || 1)) + ' / ' + (i.pack_size ? (i.pack_name || 'pack') : i.unit) : 'rate nahi',
-        i.status !== 'band' && i.per_day ? amt(i, i.per_day) + ' / din' : '—'].map(cell).join(' ; '))).join(' || ');
+        i.status === 'band' ? '—' : i.fry ? `${i.oil.litres} har ~${i.oil.avgD} din` : i.per_day ? amt(i, i.per_day) + ' / din' : '—', why(i)].map(cell).join(' ; '))).join(' || ');
     const sig = all.map(i => i.status + ':' + i.name).join(',');   // halat badle to foran, warna ghante mein aik dafa
     if (!force && sig === lastDemandLine && Date.now() - lastDemandAt < 60 * 60 * 1000) return;
     lastDemandLine = sig; lastDemandAt = Date.now();
