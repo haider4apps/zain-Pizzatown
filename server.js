@@ -527,6 +527,8 @@ function stockNeed(lines, type, direct) {
   const addTop = (rs, mult) => Object.entries(TOP[rs] || {}).forEach(([n, g]) => { const it = byName.get(n); if (it) tot[it.id] = (tot[it.id] || 0) + (it.sub_per ? g / it.sub_per : g) * mult; });
   if (direct) Object.entries(direct).forEach(([id, q]) => addItem(int(id), q));
   lines.forEach(l => { if (l.vid) { const z = parsePz(l.pz); addVariant(l.vid, l.qty, z && z.s, 0); if (z && z.s) z.s.forEach(x => { if (x.top) addTop(x.top, l.qty); }); } });
+  // band saman (ab nahi mangwate / lagate): na stock se minus, na roz ki khapat mein, na lagat mein
+  db.prepare('select id from stock_items where paused=1').all().forEach(r => { delete tot[r.id]; });
   return tot;
 }
 function stockOut(orderId, lines, bd, type) {
